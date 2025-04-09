@@ -19,7 +19,7 @@ This project forms **Assignment 2** for **STAT462**, focusing on predictive mode
   - Linear regression
   - Polynomial terms
   - Variable transformations
-  - Stepwise selection
+  - Step-wise selection
   - Ridge/Lasso regression
   - Interaction terms
 
