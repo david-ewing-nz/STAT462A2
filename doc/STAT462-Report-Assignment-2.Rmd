@@ -1,0 +1,115 @@
+---
+title:    "STAT462 Assignment 2"
+author: 
+  -       "David Ewing (82171165)"
+  -       "Xia Yu      (62380486)"
+date:     "`r Sys.Date()`"
+output:   
+  pdf_document:
+    fig_caption:     true
+    number_sections: true
+    toc:             true
+    keep_tex:        false
+fontsize: 11pt
+geometry: margin=1in
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## 1. Introduction
+
+**Assignment 2 of STAT462** - The analyses are based on two datasets contained in a provided ZIP archive. All data preparation steps, statistical analyses, and plots follow the instructions in the assignment brief.
+
+## 2. Data Extraction
+
+Extract both datasets from the ZIP file located in the project’s `data/` directory.
+
+```{r unzip-data}
+
+# Data Extraction 
+# 1 - Define path to the zip file and target extraction directory
+# 2 - Get list of filenames in the zip
+# 3 - Construct full paths for target files
+# 4 - Create target directory if it doesn't exist
+# 5 - Unzip only if any files are missing
+
+zip_path  <- "../data/data_assignment_2.zip"
+unzip_dir <- "../data/unzipped"
+csv_files <- unzip(zip_path, list = TRUE)$Name # List contents
+csv_files
+csv_files    <- unzip(zip_path, list = TRUE)$Name
+target_paths <- file.path(unzip_dir, csv_files)
+if (!dir.exists(unzip_dir)) dir.create(unzip_dir, recursive = TRUE)
+if (!all(file.exists(target_paths))) {
+  unzip(zip_path, files = csv_files, exdir = unzip_dir)
+}
+
+```
+
+## 3. Data Preparation
+
+Read the extracted datasets and examine their structure.
+
+```{r read-data}
+colors_df <- read_csv(file.path(unzip_dir, "colors_train.csv"))
+heart_df <- read_csv(file.path(unzip_dir, "heart.csv"))
+
+# Brief overviews
+glimpse(colors_df)
+glimpse(heart_df)
+```
+
+## 4. Exploratory Data Analysis
+
+We begin with summary statistics and visualise key variables from each dataset.
+
+```{r eda}
+# Summary statistics
+summary(colors_df)
+summary(heart_df)
+
+# Example plots
+ggplot(colors_df, aes(x = label)) +
+  geom_bar() +
+  labs(title = "Distribution of Colour Labels")
+
+ggplot(heart_df, aes(x = target)) +
+  geom_bar() +
+  labs(title = "Heart Disease Diagnosis Frequencies")
+```
+
+## 5. Modelling
+
+A logistic regression model is fit to the heart disease dataset.
+
+```{r model}
+# Fit logistic regression
+model <- glm(target ~ ., data = heart_df, family = binomial)
+summary(model)
+```
+
+## 6. Evaluation
+
+We evaluate the model’s predictive performance using a threshold of 0.5.
+
+```{r evaluation}
+# Make predictions and evaluate
+predicted <- ifelse(predict(model, type = "response") > 0.5, 1, 0)
+table(Predicted = predicted, Actual = heart_df$target)
+
+# Calculate accuracy
+accuracy <- mean(predicted == heart_df$target)
+accuracy
+```
+
+## 7. Discussion
+
+In this section, we discuss the model’s performance, its implications, and any limitations observed during the analysis. This includes reflection on class balance, variable significance, and the reliability of the predictions.
+
+## 8. Conclusion
+
+The report demonstrates appropriate handling of ZIP-based data, exploratory analysis, logistic regression modelling, and evaluation, in line with the expectations of STAT462 Assignment 2.

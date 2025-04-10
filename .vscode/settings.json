@@ -1,0 +1,13 @@
+{
+  "r.rterm.linux": "/usr/bin/R",
+  "r.rterm.option": ["--no-save", "--no-restore"],
+  "r.alwaysUseActiveTerminal": true,
+  "r.lsp.path": "R",
+  "r.sessionWatcher": true,
+  "editor.formatOnSave": true,
+  "files.exclude": {
+    "**/*.Rhistory": true,
+    "**/*.RData": true
+  },
+  "editor.wordWrap": "on"
+}
