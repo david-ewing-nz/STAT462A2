@@ -18,6 +18,39 @@ geometry: margin=1in
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(readr)    #  read_csv()
+library(dplyr)    #  glimpse()
+
+#  Select model-relevant columns from heart.csv ----
+
+select_model_features <- \(df) {
+  df %>%
+    # Keep only numeric predictors
+    select(where(is.numeric)) %>%
+    
+    # Remove known metadata or timing/event flags (often not predictive)
+    select(-any_of(c("RANDID", "PERIOD", "TIMECVD", "TIMEMIFC", "TIMECHD", 
+                     "TIMEDTH", "TIME", "TIMEMI", "TIMESTRK", "TIMESCHD", 
+                     "TIMEAP"))) %>%
+    
+    # Keep only columns used in assignment instructions
+    select(any_of(c("age", "sex", "sysbp", "diabp", "glucose", "diabetes", 
+                    "bmi", "educ", "cvd")))
+}
+
+#  Summarise Selected Model Features ----
+
+summarise_model_features <- \(df) {
+  df %>%
+    skimr::skim() %>%
+    skimr::skim_select(numeric) %>%  # Focus only on numeric features
+    skimr::skim_to_wide() %>%
+    flextable::flextable() %>%
+    flextable::autofit() %>%
+    flextable::theme_vanilla()
+}
+
+
 ```
 
 ## 1. Introduction
@@ -40,8 +73,7 @@ Extract both datasets from the ZIP file located in the project’s `data/` direc
 zip_path  <- "../data/data_assignment_2.zip"
 unzip_dir <- "../data/unzipped"
 csv_files <- unzip(zip_path, list = TRUE)$Name # List contents
-csv_files
-csv_files    <- unzip(zip_path, list = TRUE)$Name
+csv_files 
 target_paths <- file.path(unzip_dir, csv_files)
 if (!dir.exists(unzip_dir)) dir.create(unzip_dir, recursive = TRUE)
 if (!all(file.exists(target_paths))) {
@@ -56,9 +88,9 @@ Read the extracted datasets and examine their structure.
 
 ```{r read-data}
 colors_df <- read_csv(file.path(unzip_dir, "colors_train.csv"))
-heart_df <- read_csv(file.path(unzip_dir, "heart.csv"))
+heart_df  <- read_csv(file.path(unzip_dir, "heart.csv"))
 
-# Brief overviews
+cat("==== Schema for", basename(target_paths[1]), "====\n")
 glimpse(colors_df)
 glimpse(heart_df)
 ```
