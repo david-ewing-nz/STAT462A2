@@ -6,6 +6,94 @@ author:
 date:     "`r Sys.Date()`"
 output:   
   pdf_document:
+    latex_engine: xelatex
+    fig_caption:     true
+    number_sections: true
+    toc:             true
+    keep_tex:        false
+    fig_crop: false         # disable pdfcrop 
+fontsize: 11pt
+geometry: margin=1in
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dev.args = list(png = list(type = "cairo")))  # Summer I need this for my configuration of VS Code. Let me know if you need it removed. 
+
+# Load libraries
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(flextable)
+library(caret)
+
+
+# ---- Pretty Summary Table for Numeric Features ----
+pretty_summary <- \(df) {
+  df %>%
+    select(where(is.numeric)) %>%
+    summarise(
+      across(
+        everything(),
+        .fns = list(
+          Mean     = \(x) mean(x, na.rm = TRUE),
+          Median   = \(x) median(x, na.rm = TRUE),
+          Min      = \(x) min(x, na.rm = TRUE),
+          Max      = \(x) max(x, na.rm = TRUE),
+          IQR      = \(x) IQR(x, na.rm = TRUE),
+          NA_Count = \(x) sum(is.na(x))
+        )
+      )
+    ) %>%
+    pivot_longer(
+      cols = everything(),
+      names_to = c("Variable", ".value"),
+      names_sep = "_"
+    ) %>%
+    mutate(across(where(is.numeric), round, 2)) %>%
+    flextable() %>%
+    set_header_labels(
+      Variable = "Feature",
+      Mean     = "Mean",
+      Median   = "Median",
+      Min      = "Min",
+      Max      = "Max",
+      IQR      = "Interquartile Range",
+      NA_Count = "Missing Values"
+    ) %>%
+    autofit() %>%
+    theme_vanilla()
+}
+
+
+# ---- Pretty CSV Loader with Type Summary and Preview ----
+pretty_read_csv <- \(path, n = 0) {
+  df <- readr::read_csv(path, show_col_types = FALSE)
+  types <- purrr::map_chr(df, typeof)
+  type_df <- data.frame(Column = names(df), Type = types, stringsAsFactors = FALSE)
+
+  print(flextable::flextable(type_df) |> 
+          flextable::autofit() |> 
+          flextable::theme_vanilla())
+
+  if (n > 0) print(utils::head(df, n))
+  else if (n < 0) print(utils::tail(df, abs(n)))
+
+  invisible(df)
+}
+```
+
+
+---
+title:    "STAT462 Assignment 2"
+author: 
+  -       "David Ewing (82171165)"
+  -       "Xia Yu      (62380486)"
+date:     "`r Sys.Date()`"
+output:   
+  pdf_document:
     fig_caption:     true
     number_sections: true
     toc:             true
@@ -15,43 +103,7 @@ geometry: margin=1in
 ---
 
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
-library(readr)    #  read_csv()
-library(dplyr)    #  glimpse()
 
-#  Select model-relevant columns from heart.csv ----
-
-select_model_features <- \(df) {
-  df %>%
-    # Keep only numeric predictors
-    select(where(is.numeric)) %>%
-    
-    # Remove known metadata or timing/event flags (often not predictive)
-    select(-any_of(c("RANDID", "PERIOD", "TIMECVD", "TIMEMIFC", "TIMECHD", 
-                     "TIMEDTH", "TIME", "TIMEMI", "TIMESTRK", "TIMESCHD", 
-                     "TIMEAP"))) %>%
-    
-    # Keep only columns used in assignment instructions
-    select(any_of(c("age", "sex", "sysbp", "diabp", "glucose", "diabetes", 
-                    "bmi", "educ", "cvd")))
-}
-
-#  Summarise Selected Model Features ----
-
-summarise_model_features <- \(df) {
-  df %>%
-    skimr::skim() %>%
-    skimr::skim_select(numeric) %>%  # Focus only on numeric features
-    skimr::skim_to_wide() %>%
-    flextable::flextable() %>%
-    flextable::autofit() %>%
-    flextable::theme_vanilla()
-}
-
-
-```
 
 ## 1. Introduction
 
@@ -95,6 +147,23 @@ glimpse(colors_df)
 glimpse(heart_df)
 ```
 
+
+
+```{r plot-colours-bar, eval=TRUE}
+# Confirm available columns
+print(names(colors_df))
+
+# Plot colour distribution using the correct column
+ggplot(colors_df, aes(x = color)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Colour Labels", x = "Colour", y = "Count") +
+  theme_minimal()
+```
+
+
+
+
+
 ## 4. Exploratory Data Analysis
 
 We begin with summary statistics and visualise key variables from each dataset.
@@ -105,11 +174,11 @@ summary(colors_df)
 summary(heart_df)
 
 # Example plots
-ggplot(colors_df, aes(x = label)) +
+ggplot(colors_df, aes(x = color)) +
   geom_bar() +
   labs(title = "Distribution of Colour Labels")
 
-ggplot(heart_df, aes(x = target)) +
+ggplot(heart_df, aes(x = CVD)) +
   geom_bar() +
   labs(title = "Heart Disease Diagnosis Frequencies")
 ```
@@ -120,7 +189,17 @@ A logistic regression model is fit to the heart disease dataset.
 
 ```{r model}
 # Fit logistic regression
-model <- glm(target ~ ., data = heart_df, family = binomial)
+
+# Create training and validation sets from heart_df
+# This is a guess — please confirm if validation set should be constructed differently
+set.seed(82171165)
+train_idx <- createDataPartition(heart_df$CVD, p = 0.8, list = FALSE)
+heart_train <- heart_df[train_idx, ]
+heart_validate <- heart_df[-train_idx, ]
+
+
+# this is a guess
+model <- glm(CVD ~ ., data = heart_train, family = binomial)
 summary(model)
 ```
 
@@ -130,11 +209,12 @@ We evaluate the model’s predictive performance using a threshold of 0.5.
 
 ```{r evaluation}
 # Make predictions and evaluate
-predicted <- ifelse(predict(model, type = "response") > 0.5, 1, 0)
-table(Predicted = predicted, Actual = heart_df$target)
+# this is a guess
+predicted <- ifelse(predict(model, newdata = heart_validate, type = "response")   > 0.5, 1, 0)
+table(Predicted = predicted, Actual = heart_validate$CVD)
 
 # Calculate accuracy
-accuracy <- mean(predicted == heart_df$target)
+accuracy <- mean(predicted == heart_validate$CVD)
 accuracy
 ```
 
