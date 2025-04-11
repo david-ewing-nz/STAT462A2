@@ -1,0 +1,38 @@
+---
+title: "WBS2"
+author: "Summer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Work Breakdown Structure of Q2
+
+How many classes are there in the dataset? (数据集中有多少个类？)
+
+-   Fit a QDA algorithm to this classification problem and visualise the decision boundaries in a suitable way. (将 QDA 算法拟合到这个分类问题，并以合适的方式可视化决策边界。)
+-   Test your algorithm on (200,0,200). (在 (200,0,200) 上测试你的算法。)
+-   What color is this being called by your algorithm? (你的算法将此颜色称为什么？)
+-   Opportunity for showing extra effort: Learn about kNN-Classification, implement it, and compare it with your QDA algorithm’s results. (展示额外努力的机会：了解 kNN 分类，实现它，并将其与你的 QDA 算法的结果进行比较。)
+
+**步骤 (Steps):**
+
+### steps:
+
+1.  **确定类别数量 (Determine Number of Classes):**
+    -   English: Determine the number of distinct color classes present in the dataset.
+    -   中文: 确定数据集中存在的不同颜色类别的数量。
+2.  **拟合 QDA 模型 (Fit QDA Model):**
+    -   English: Fit a Quadratic Discriminant Analysis (QDA) algorithm to the classification problem.
+    -   中文: 将二次判别分析 (QDA) 算法拟合到分类问题上。
+3.  **可视化决策边界 (Visualize Decision Boundaries):**
+    -   English: Visualize the decision boundaries of the fitted QDA model in a suitable way.
+    -   中文: 以合适的方式可视化拟合的 QDA 模型的决策边界。
+4.  **测试算法 (Test Algorithm):**
+    -   English: Test the QDA algorithm on the input (200, 0, 200).
+    -   中文: 在输入 (200, 0, 200) 上测试 QDA 算法。
+5.  **预测颜色名称 (Predict Color Name):**
+    -   English: Determine what color name is predicted by the algorithm for the input (200, 0, 200).
+    -   中文: 确定算法对于输入 (200, 0, 200) 预测的颜色名称。
+6.  **比较 kNN (Optional):**
+    -   English: (Opportunity for extra effort) Learn about k-Nearest Neighbors (kNN) classification, implement it, and compare its performance with the QDA algorithm.
+    -   中文: （展示额外努力的机会）了解 k 最近邻 (kNN) 分类，实现它，并将其性能与 QDA 算法进行比较。

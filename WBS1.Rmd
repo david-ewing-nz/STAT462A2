@@ -1,0 +1,65 @@
+---
+title: "Q1"
+author: "Summer"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# WBS of Q1
+
+-   Split the dataset into a training set (80% of entries) and a test set (20% of entries). (将数据集分割成训练集（80%）和测试集（20%）。)
+-   Visualise the relationship between DEATH, GLUCOSE and SYSBP (in a suitable way). (以合适的方式可视化 DEATH、GLUCOSE 和 SYSBP 之间的关系。)
+-   Form an initial hypothesis of what to look for when doing the classification. (形成一个初步的假设，在进行分类时应该注意什么。)
+-   On the training set, fit a (multiple) logistic regression model. (在训练集上，拟合一个（多元）逻辑回归模型。)
+-   Compute the misclassification rates on the test set. (计算测试集上的误分类率。)
+-   Compute the confusion matrix on the test set. (计算测试集上的混淆矩阵。)
+-   Visualise your fitted classification models suitable, e.g., by plotting the decision boundaries in the GLUCOSE-SYSBP-plane. (以合适的方式可视化你拟合的分类模型，例如，在 GLUCOSE-SYSBP 平面上绘制决策边界。)
+-   Make a comment or observation regarding goodness of fit. (对拟合优度进行评论或观察。)
+-   In order to address this problem, we can change the threshold at which an patient is classified as being “risky”: Instead of setting the decision boundary at probability p=50%, we classify a customer as “risky” (i.e., we predict DEATH) if the risk of them dying is higher than 10%. (为了解决这个问题，我们可以改变将患者分类为“有风险”的阈值：不将决策边界设置为概率 p=50%，如果他们死亡的风险高于 10%，我们将客户分类为“有风险”（即，我们预测 DEATH）。)
+-   Modify your logistic regression to do this, and repeat the tasks of question c). (修改你的逻辑回归模型以实现这一点，并重复问题 c) 的任务。)
+-   Compare the performance of logistic regression and discriminant analysis on this classification problem. (比较逻辑回归和判别分析在这个分类问题上的性能。)
+-   Identify strong risk factors from this dataset and communicate your results. (从这个数据集中识别出强大的风险因素，并传达你的结果。)
+
+### steps:
+
+1.  **数据分割 (Data Splitting):**
+    -   English: Split the dataset into a training set (80%) and a test set (20%).
+    -   中文: 将数据集分割成训练集（80%）和测试集（20%）。
+2.  **数据可视化 (Data Visualization):**
+    -   English: Visualise the relationship between DEATH, GLUCOSE and SYSBP.
+    -   中文: 可视化 DEATH、GLUCOSE 和 SYSBP 之间的关系。
+3.  **形成假设 (Hypothesis Formation):**
+    -   English: Form an initial hypothesis of what to look for when doing the classification.
+    -   中文: 形成一个初步的假设，在进行分类时应该注意什么。
+4.  **拟合逻辑回归模型 (Fit Logistic Regression Model):**
+    -   English: On the training set, fit a (multiple) logistic regression model.
+    -   中文: 在训练集上，拟合一个（多元）逻辑回归模型。
+5.  **计算误分类率 (Compute Misclassification Rates):**
+    -   English: Compute the misclassification rates on the test set.
+    -   中文: 计算测试集上的误分类率。
+6.  **计算混淆矩阵 (Compute Confusion Matrix):**
+    -   English: Compute the confusion matrix on the test set.
+    -   中文: 计算测试集上的混淆矩阵。
+7.  **可视化分类模型 (Visualise Classification Model):**
+    -   English: Visualise your fitted classification models, e.g., by plotting the decision boundaries in the GLUCOSE-SYSBP-plane.
+    -   中文: 可视化你拟合的分类模型，例如，在 GLUCOSE-SYSBP 平面上绘制决策边界。
+8.  **评论拟合优度 (Comment on Goodness of Fit):**
+    -   English: Make a comment or observation regarding goodness of fit.
+    -   中文: 对拟合优度进行评论或观察。
+9.  **修改决策阈值 (Modify Decision Threshold):**
+    -   English: Modify your logistic regression to classify as "risky" if the risk is higher than 10%.
+    -   中文: 修改你的逻辑回归模型，如果风险高于 10%，则分类为“有风险”。
+10. **重复步骤 c) (Repeat Tasks of c)):**
+    -   English: Repeat the tasks of question c) (misclassification rates, confusion matrix, visualisation) with the modified threshold.
+    -   中文: 使用修改后的阈值重复问题 c) 的任务（误分类率、混淆矩阵、可视化）。
+11. **比较模型性能 (Compare Model Performance):**
+    -   English: Compare the performance of logistic regression and discriminant analysis on this classification problem.
+    -   中文: 比较逻辑回归和判别分析在这个分类问题上的性能。
+12. **识别风险因素 (Identify Risk Factors):**
+    -   English: Identify strong risk factors from this dataset and communicate your results.
+
+    -   中文: 从这个数据集中识别出强大的风险因素，并传达你的结果。
