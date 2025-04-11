@@ -1,0 +1,136 @@
+
+```{r a1-prepare-model-data, message=FALSE, warning=FALSE}
+# A1. Prepare Model Data (drop rows with missing GLUCOSE, SYSBP, CVD)
+heart_df_selected <- heart_df %>%
+  select(where(is.numeric)) %>%
+  select(-any_of(c("RANDID", "PERIOD", "TIMECVD", "TIMEMIFC", "TIMECHD",
+                   "TIMEDTH", "TIME", "TIMEMI", "TIMESTRK", "TIMESCHD",
+                   "TIMEAP"))) %>%
+  select(any_of(c("AGE", "SEX", "SYSBP", "DIABP", "GLUCOSE", "DIABETES",
+                  "BMI", "educ", "CVD")))
+
+heart_df_clean <- heart_df_selected %>%
+  drop_na(GLUCOSE, SYSBP, CVD)
+
+pretty_df(heart_df_clean, title = "Cleaned Heart Dataset for Logistic Regression", max_rows = 10)
+```
+
+```{r a2-fit-logistic-model, message=FALSE, warning=FALSE}
+# A2. Fit Logistic Regression Model
+heart_model <- glm(CVD ~ GLUCOSE + SYSBP, data = heart_df_clean, family = binomial)
+```
+
+```{r a3-decision-boundary-grid, message=FALSE, warning=FALSE}
+# A3. Decision Boundary Grid
+grid_vals <- expand.grid(
+  GLUCOSE = seq(min(heart_df_clean$GLUCOSE, na.rm = TRUE), max(heart_df_clean$GLUCOSE, na.rm = TRUE), length.out = 100),
+  SYSBP   = seq(min(heart_df_clean$SYSBP, na.rm = TRUE), max(heart_df_clean$SYSBP, na.rm = TRUE), length.out = 100)
+)
+grid_vals$prob <- predict(heart_model, newdata = grid_vals, type = "response")
+```
+
+```{r a4-logistic-decision-plot, message=FALSE, warning=FALSE}
+# A4. ggplot for Logistic Regression
+ggph_logistic <- ggplot(heart_df_clean, aes(x = GLUCOSE, y = SYSBP, colour = as.factor(CVD))) +
+  geom_point(alpha = 0.6) +
+  stat_contour(data = grid_vals, aes(z = prob), breaks = 0.5, colour = "black") +
+  labs(title = "Logistic Regression: GLUCOSE vs SYSBP", colour = "CVD") +
+  theme_minimal()
+print(ggph_logistic)
+```
+
+
+
+
+```{r a5-model-evaluation, message=FALSE, warning=FALSE}
+# A5. Model Evaluation
+heart_df_clean$prob <- predict(heart_model, type = "response")
+heart_df_clean$pred <- ifelse(heart_df_clean$prob > 0.5, 1, 0)
+
+# Accuracy calculation
+accuracy <- mean(heart_df_clean$pred == heart_df_clean$CVD)
+cat(sprintf("\nModel Accuracy (Threshold = 0.5): %.2f\n", accuracy))
+
+# Optional confusion matrix
+conf_mat <- table(Predicted = heart_df_clean$pred, Actual = heart_df_clean$CVD)
+print(conf_mat)
+```
+
+ 
+```{r a5-qda-model-token, message=FALSE, warning=FALSE}
+# A5. QDA model (token)
+heart_qda_df <- heart_df %>%
+  select(GLUCOSE, SYSBP, CVD) %>%
+  na.omit()
+
+qda_model <- qda(CVD ~ GLUCOSE + SYSBP, data = heart_qda_df)
+```
+ 
+ 
+
+```{r a6-qda-decision-boundary-token-ggplot, message=FALSE, warning=FALSE}
+
+grid_qda <- expand.grid(
+  GLUCOSE = seq(min(heart_qda_df$GLUCOSE), max(heart_qda_df$GLUCOSE), length.out = 100),
+  SYSBP = seq(min(heart_qda_df$SYSBP), max(heart_qda_df$SYSBP), length.out = 100)
+)
+grid_qda$class <- predict(qda_model, newdata = grid_qda)$class
+
+ggph_qda_boundary <- ggplot(heart_qda_df, aes(x = GLUCOSE, y = SYSBP, color = as.factor(CVD))) +
+  geom_point(alpha = 0.6) +
+  geom_tile(data = grid_qda, aes(x = GLUCOSE, y = SYSBP, fill = class), 
+            alpha = 0.2, inherit.aes = FALSE) +
+  labs(title = "QDA Decision Boundary (Token)", fill = "Predicted") +
+  theme_minimal()
+
+```
+
+```{r a7-knn-model-token-—-define-function-and-apply, message=FALSE, warning=FALSE}
+
+# A7. kNN model (token) — Define function and apply
+knn_predict <- function(train, test, cl, k = 5) {
+  class::knn(train = train, test = test, cl = cl, k = k)
+}
+knn_classes <- knn_predict(
+  train = heart_qda_df[, c("GLUCOSE", "SYSBP")],
+  test = grid_qda[, c("GLUCOSE", "SYSBP")],
+  cl = heart_qda_df$CVD,
+  k = 5
+)
+grid_qda$knn <- knn_classes
+
+```
+
+```{r a8-knn-decision-boundary-token-ggplot, message=FALSE, warning=FALSE}
+
+# A8. kNN decision boundary (token ggplot)
+ggph_knn_boundary <- ggplot(heart_qda_df, aes(x = GLUCOSE, y = SYSBP, color = as.factor(CVD))) +
+  geom_point(alpha = 0.6) +
+  geom_tile(
+    data = grid_qda, 
+    aes(x = GLUCOSE, y = SYSBP, fill = knn), 
+    alpha = 0.2, 
+    inherit.aes = FALSE
+  ) +
+  labs(title = "kNN Decision Boundary (Token)", fill = "Predicted") +
+  theme_minimal()
+
+print(ggph_knn_boundary)
+
+
+```
+
+```{r a9-placeholder-for-additional-metrics, message=FALSE, warning=FALSE}
+
+# A9. Placeholder for additional metrics
+qda_pred <- predict(qda_model)$class
+qda_accuracy <- mean(qda_pred == heart_qda_df$CVD)
+cat(sprintf("QDA Accuracy (Token): %.2f\n", qda_accuracy))
+
+knn_accuracy <- mean(knn_classes == heart_qda_df$CVD[1:length(knn_classes)])
+cat(sprintf("kNN Accuracy (Token): %.2f\n", knn_accuracy))
+
+
+
+
+```
