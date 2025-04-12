@@ -11,7 +11,7 @@ output:
     number_sections: true
     toc:             true
     keep_tex:        false
-    fig_crop: false         # disable pdfcrop 
+    fig_crop:        false         # disable pdfcrop 
 fontsize: 11pt
 geometry: margin=1in
 ---
@@ -27,6 +27,7 @@ geometry: margin=1in
 #---------------- loading libraries ---------------------------
 # Load configuration for reproducibility and preferred CRAN mirror
 options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
+
 
 # Required packages
 required_packages <- c(
