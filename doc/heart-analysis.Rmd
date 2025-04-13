@@ -55,96 +55,107 @@ heart_test  <- heart_clean[-train_idx, ]
 # Fit logistic regression models on training and test sets
 logit_train <- glm(CVD ~ GLUCOSE + SYSBP, data = heart_train, family = binomial)
 logit_test  <- glm(CVD ~ GLUCOSE + SYSBP, data = heart_test, family = binomial)
+logit_train
+summary(logit_train)
+logit_test
+summary(logit_test)
 ```
 
-
-
-
-```{r a2-show-models-side-by-side, echo=FALSE}
-
-# Capture summaries as character strings
-train_summary <- capture.output(summary(logit_train))
-test_summary  <- capture.output(summary(logit_test))
-hlr_train <- gsub("[[:cntrl:]]", "", train_summary)
-hlr_test  <- gsub("[[:cntrl:]]", "", test_summary)
-cat(paste(hlr_train, collapse = "\n"))
-cat(paste(hlr_test, collapse = "\n"))
-
-```
-
-
-
-```{r}
-
-
-
-# Extract summaries
-train_sum <- summary(logit_train)
-test_sum  <- summary(logit_test)
-
-# Create a data frame combining coefficients from both models
-coef_table <- data.frame(
-  Variable = rownames(train_sum$coefficients),
-  Estimate_Train = round(train_sum$coefficients[, "Estimate"], 5),
-  `z value (Train)` = round(train_sum$coefficients[, "z value"], 3),
-  `Pr(>|z|) (Train)` = format.pval(train_sum$coefficients[, "Pr(>|z|)"], eps = 1e-16, digits = 2),
-  Estimate_Test = round(test_sum$coefficients[, "Estimate"], 5),
-  `z value (Test)` = round(test_sum$coefficients[, "z value"], 3),
-  `Pr(>|z|) (Test)` = format.pval(test_sum$coefficients[, "Pr(>|z|)"], eps = 1e-16, digits = 2)
-)
-
-# Print with knitr::kable
-kable(coef_table, caption = "Logistic Regression Coefficients: Training vs Test Set")
-
-```
-
-```{r logistic-summary-flextable, message=FALSE, warning=FALSE}
-library(dplyr)
+```{r logistic-coefficients-flextable, message=FALSE, warning=FALSE}
 library(flextable)
+library(dplyr)
 
-# Function to extract summary
+# Extract coefficients and format as strings
 extract_stat <- function(model, label) {
   coefs <- summary(model)$coefficients
   data.frame(
-    Statistic = c("Estimate", "z value", "Pr(>|z|)"),
-    `(Intercept)` = round(c(coefs[1,1], coefs[1,3], coefs[1,4]), 3),
+    Statistic     = c("Estimate", "z value", "Pr(>|z|)"),
+    X.Intercept.  = round(c(coefs[1,1], coefs[1,3], coefs[1,4]), 3),
     GLUCOSE       = round(c(coefs[2,1], coefs[2,3], coefs[2,4]), 3),
     SYSBP         = round(c(coefs[3,1], coefs[3,3], coefs[3,4]), 3),
-    Group         = label
+    Group         = label,
+    stringsAsFactors = FALSE
   )
 }
 
-# Create table data
+# Combine Train and Test rows
 tbl <- bind_rows(
   extract_stat(logit_train, "Train"),
   extract_stat(logit_test,  "Test")
 )
 
-# Add wrapped interpretations
-tbl$Interpretation <- c(
-  "Baseline log-odds of CVD\nwhen all predictors are zero",
-  "Increase in log-odds of CVD\nper unit increase in GLUCOSE",
-  "Increase in log-odds of CVD\nper mmHg increase in SYSBP",
-  "Baseline log-odds of CVD\nwhen all predictors are zero",
-  "Increase in log-odds of CVD\nper unit increase in GLUCOSE",
-  "Increase in log-odds of CVD\nper mmHg increase in SYSBP"
-)
-
-# Use flextable
+# Render flextable (no interpretation column)
 ft <- flextable(tbl) |>
-  set_caption("Logistic Regression Summary by Coefficient and Statistic") |>
+  set_caption("Coefficient and Dataset") |>
   autofit() |>
-  fontsize(size = 12, part = "all") |>
+  fontsize(size = 11, part = "all") |>
   align(align = "center", part = "all") |>
   theme_booktabs() |>
   padding(padding = 4, part = "all") |>
-  line_spacing(space = 1.2) |>
-  flextable::compose(j = "Interpretation", value = as_paragraph(Interpretation)) |>
-  border(i = 3, border.bottom = fp_border(width = 2))  # strong line after training rows
+  line_spacing(space = 1.1) |>
+  border(i = 3, border.bottom = fp_border(width = 2))  # thick line after training rows
 
 ft
 
 ```
+
+
+```{r logistic-fit-metrics-flextable, message=FALSE, warning=FALSE}
+library(flextable)
+
+# Extract training metrics
+null_dev_train  <- round(logit_train$null.deviance, 1)
+df_null_train   <- logit_train$df.null
+resid_dev_train <- round(logit_train$deviance, 1)
+df_resid_train  <- logit_train$df.residual
+aic_train       <- round(logit_train$aic, 1)
+
+# Extract test metrics
+null_dev_test   <- round(logit_test$null.deviance, 1)
+df_null_test    <- logit_test$df.null
+resid_dev_test  <- round(logit_test$deviance, 1)
+df_resid_test   <- logit_test$df.residual
+aic_test        <- round(logit_test$aic, 1)
+
+# Construct data frame
+fit_tbl <- data.frame(
+  Metric = c("Null Deviance", "Residual Deviance", "AIC"),
+  Training.Set = c(
+    paste0(null_dev_train, " (", df_null_train, " df)"),
+    paste0(resid_dev_train, " (", df_resid_train, " df)"),
+    aic_train
+  ),
+  Test.Set = c(
+    paste0(null_dev_test, " (", df_null_test, " df)"),
+    paste0(resid_dev_test, " (", df_resid_test, " df)"),
+    aic_test
+  ),
+  stringsAsFactors = FALSE
+)
+
+# Render with flextable
+flextable(fit_tbl) |>
+  set_caption("Logistic Regression Fit Metrics for Training and Test Sets") |>
+  autofit() |>
+  fontsize(size = 11, part = "all") |>
+  align(align = "center", part = "all") |>
+  theme_booktabs() |>
+  padding(padding = 4, part = "all") |>
+  line_spacing(space = 1.1)
+```
+
+
+ 
+
+ 
+
+
+ 
+ 
+ 
+ 
+ 
+ 
 
 
 ```{r a3a-decision-boundary-grid, message=FALSE, warning=FALSE}
