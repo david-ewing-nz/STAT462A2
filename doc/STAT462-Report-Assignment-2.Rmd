@@ -10,12 +10,20 @@ output:
     fig_caption:     true
     number_sections: true
     toc:             true
-    keep_tex:        false
-    fig_crop: false         # disable pdfcrop 
+    keep_tex:        true
+    fig_crop:        false         # disable pdfcrop 
+    includes:
+      in_header: ../doc/fonts.tex
 fontsize: 11pt
 geometry: margin=1in
 ---
-
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+    
+mainfont: Arial
+fontsize: 10pt
 
 ```{r setup, include=FALSE}
 # This chunk was set up with the aid of ChatGPT.
@@ -28,24 +36,26 @@ geometry: margin=1in
 # Load configuration for reproducibility and preferred CRAN mirror
 options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
 
+library(conflicted) # befor any other
+
 # Required packages
 required_packages <- c(
-  "conflicted",    # Conflict resolution
-  "ggplot2",       # Core plotting
-  "dplyr",         # Data wrangling
-  "tidyverse",     # Core data science packages
-  "flextable",     # Summary tables
-  "skimr",         # Data summaries
-  "GGally",        # Pair plots
-  "MASS",          # LDA/QDA and logistic
-  "class",         # kNN
   "caret",         # Model training utilities
-  "glmnet",        # Regularised regression
+  "class",         # kNN 
   "cowplot",       # Plot composition
+  "dplyr",         # Data wrangling
+  "flextable",     # Summary tables
+  "GGally",        # Pair plots
+  "ggplot2",       # Core plotting
+  "glmnet",        # Regularised regression
+  "kableExtra",    # Table formatting
   "knitr",         # Inline rendering
-  "kableExtra"     # Table formatting
+  "MASS",          # LDA/QDA and logistic
+  "officer",       # Word/PDF table styling (used by flextable)
+  "skimr",         # Data summaries
+  "tidyverse",     # Core data science packages
+  "tibble"         # Modern data frames
 )
-
 for (pkg in required_packages) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
     install.packages(pkg)
@@ -67,7 +77,7 @@ knitr::opts_chunk$set(dev.args = list(png = list(type = "cairo")))
 # and a preview
 
 pretty_summary <- \(df) {   # works with flextable 
-  select(df, where(is.numeric)) %>%
+  select(df, where(is.numeric)) |>
     summarise(
       across(
         everything(),
@@ -80,14 +90,14 @@ pretty_summary <- \(df) {   # works with flextable
           nNA      = \(x) sum(is.na(x))
         )
       )
-    ) %>%
+    ) |>
     pivot_longer(
       cols = everything(),
       names_to = c("Variable", ".value"),
       names_sep = "_"
-    ) %>%
-    mutate(across(where(is.numeric), round, 2)) %>%
-    flextable() %>%
+    ) |>
+    mutate(across(where(is.numeric), round, 2)) |>
+    flextable() |>
     set_header_labels(
       Variable = "Feature",
       Mean     = "Mean",
@@ -96,8 +106,8 @@ pretty_summary <- \(df) {   # works with flextable
       Max      = "Max",
       IQR      = "Interquartile Range",
       nNA      = "Missing Values"
-    ) %>%
-    autofit() %>%
+    ) |>
+    autofit() |>
     theme_vanilla()
 }
 
@@ -124,11 +134,11 @@ pretty_read_csv <- \(path, n = 0) {                   # to work with flextable
 pretty_df <- function(df, title = NULL, fontsize = 10, max_rows = 20) {
   df_show <- head(df, max_rows)  # Limit to first `max_rows` rows for readability
   
-  ft <- flextable(df_show) %>%
-    fontsize(size = fontsize, part = "all") %>%
-    autofit() %>%
-    theme_booktabs() %>%
-    align(align = "center", part = "all") %>%
+  ft <- flextable(df_show) |>
+    fontsize(size = fontsize, part = "all") |>
+    autofit() |>
+    theme_booktabs() |>
+    align(align = "center", part = "all") |>
     padding(padding = 5, part = "all") 
   
   if (!is.null(title)) {
@@ -138,8 +148,7 @@ pretty_df <- function(df, title = NULL, fontsize = 10, max_rows = 20) {
   return(ft)
 }
 
-library(flextable)
-library(ggplot2)
+ 
 
 pretty_ggplot <- function(plot, title = "ggplot Summary") {
   if (!inherits(plot, "gg")) stop("Input must be a ggplot object.")
@@ -167,26 +176,22 @@ pretty_ggplot <- function(plot, title = "ggplot Summary") {
   )
 
   # Format with flextable
-  flextable(df) %>%
-    set_caption(caption = title) %>%
-    autofit() %>%
-    theme_booktabs() %>%
-    fontsize(size = 10, part = "all") %>%
-    align(align = "left", part = "all") %>%
+  flextable(df) |>
+    set_caption(caption = title) |>
+    autofit() |>
+    theme_booktabs() |>
+    fontsize(size = 10, part = "all") |>
+    align(align = "left", part = "all") |>
     padding(padding = 4)
 }
 
-library(flextable)
-library(broom)
-
-library(flextable)
-library(broom)
+ 
 
 pretty_model <- function(model, title = "Model Summary", digits = 3) {
   if (!inherits(model, "glm")) stop("Only 'glm' objects are currently supported.")
   
   # Use broom::tidy() for clean coefficient table
-  tidy_tbl <- broom::tidy(model) %>%
+  tidy_tbl <- broom::tidy(model) |>
     mutate(across(where(is.numeric), ~ round(.x, digits)))
 
   # Optionally include model fit stats (like AIC, null deviance, etc.)
@@ -202,21 +207,21 @@ pretty_model <- function(model, title = "Model Summary", digits = 3) {
   )
   
   # Format coefficient table
-  ft_coef <- flextable(tidy_tbl) %>%
-    set_caption(caption = title) %>%
-    autofit() %>%
-    theme_booktabs() %>%
-    fontsize(size = 10, part = "all") %>%
-    align(align = "center", part = "all") %>%
+  ft_coef <- flextable(tidy_tbl) |>
+    set_caption(caption = title) |>
+    autofit() |>
+    theme_booktabs() |>
+    fontsize(size = 10, part = "all") |>
+    align(align = "center", part = "all") |>
     padding(padding = 4, part = "all")
 
   # Format stats table separately (optional)
-  ft_stats <- flextable(stats_tbl) %>%
-    set_caption(caption = paste(title, "(Fit Stats)")) %>%
-    autofit() %>%
-    theme_booktabs() %>%
-    fontsize(size = 9, part = "all") %>%
-    align(align = "left", part = "all") %>%
+  ft_stats <- flextable(stats_tbl) |>
+    set_caption(caption = paste(title, "(Fit Stats)")) |>
+    autofit() |>
+    theme_booktabs() |>
+    fontsize(size = 9, part = "all") |>
+    align(align = "left", part = "all") |>
     padding(padding = 4, part = "all")
   
   # Return both as a list for separate rendering
@@ -263,19 +268,14 @@ colour_df <- read_csv(path_colour, col_names = TRUE)
 str(heart_df)
 str(colour_df)
 ```
-
-
+.
 
 
 # Question A: Predicting Mortality (`heart.csv`)
 
 ```{r child="../doc/heart-analysis.Rmd"}
 ```
-#```{r load-heart-analysis2}
-# Source all relevant functions and logic for Question A
-#source("heart-analysis-A1-A11.rmd", echo = TRUE, local = knitr::knit_global())
-#
-#```
+
 
 
 ## A(a) Train-Test Split

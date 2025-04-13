@@ -1,0 +1,28 @@
+---
+title: "Q1"
+author: "Summer"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# WBS of Q1
+
+
+### steps:
+
+    -   English: Split the dataset into a training set (80%) and a test set (20%).
+    -   English: Visualise the relationship between DEATH, GLUCOSE and SYSBP.
+    -   English: Form an initial hypothesis of what to look for when doing the classification.
+    -   English: On the training set, fit a (multiple) logistic regression model.
+    -   English: Compute the misclassification rates on the test set.
+    -   English: Compute the confusion matrix on the test set.
+    -   English: Visualise your fitted classification models, e.g., by plotting the decision boundaries in the GLUCOSE-SYSBP-plane.
+    -   English: Make a comment or observation regarding goodness of fit.
+    -   English: Modify your logistic regression to classify as "risky" if the risk is higher than 10%.
+    -   English: Repeat the tasks of question c) (misclassification rates, confusion matrix, visualisation) with the modified threshold.
+    -   English: Compare the performance of logistic regression and discriminant analysis on this classification problem.
+    -   English: Identify strong risk factors from this dataset and communicate your results.

@@ -1,37 +1,164 @@
+```{r instructions, message=FALSE, warning=FALSE}
+### steps:
+
+#    -   English: 
+#    -   English: Visualise the relationship between DEATH, GLUCOSE and SYSBP.
+#    -   English: Form an initial hypothesis of what to look for when doing the classification.
+#    -   English: On the training set, fit a (multiple) logistic regression model.
+#    -   English: Compute the misclassification rates on the test set.
+#    -   English: Compute the confusion matrix on the test set.
+#    -   English: Visualise your fitted classification models, e.g., by plotting the decision boundaries in the GLUCOSE-SYSBP-plane.
+#    -   English: Make a comment or observation regarding goodness of fit.
+#    -   English: Modify your logistic regression to classify as "risky" if the risk is higher than 10%.
+ #   -   English: Repeat the tasks of question c) (misclassification rates, confusion matrix, visualisation) with the modified threshold.
+#    -   English: Compare the performance of logistic regression and discriminant analysis on this classification problem.
+#    -   English: Identify strong risk factors from this dataset and communicate your results.
+
+```
+
+
 
 ```{r a1-prepare-model-data, message=FALSE, warning=FALSE}
-# A1. Prepare Model Data (drop rows with missing GLUCOSE, SYSBP, CVD)
-heart_df_selected <- heart_df %>%
-  select(where(is.numeric)) %>%
+
+heart_selected <-  select(heart_df, where(is.numeric)) |>
   select(-any_of(c("RANDID", "PERIOD", "TIMECVD", "TIMEMIFC", "TIMECHD",
                    "TIMEDTH", "TIME", "TIMEMI", "TIMESTRK", "TIMESCHD",
-                   "TIMEAP"))) %>%
+                   "TIMEAP"))) |>
   select(any_of(c("AGE", "SEX", "SYSBP", "DIABP", "GLUCOSE", "DIABETES",
                   "BMI", "educ", "CVD")))
 
-heart_df_clean <- heart_df_selected %>%
-  drop_na(GLUCOSE, SYSBP, CVD)
+heart_clean <-  drop_na(heart_selected,GLUCOSE, SYSBP, CVD)
 
-pretty_df(heart_df_clean, title = "Cleaned Heart Dataset for Logistic Regression", max_rows = 10)
+pretty_df(heart_clean, title = "heart_clean for  Logistic Regression", max_rows = 10)
 ```
 
-```{r a2-fit-logistic-model, message=FALSE, warning=FALSE}
-# A2. Fit Logistic Regression Model
-heart_model <- glm(CVD ~ GLUCOSE + SYSBP, data = heart_df_clean, family = binomial)
+# English: Split the dataset into a training set (80%) and a test set (20%)
+
+```{r a2-split-data, message=FALSE, warning=FALSE}
+
+set.seed(82171165) # for reproducibility
+
+#  80:20 split idx
+n <- nrow(heart_clean)
+size <- 0.8 * n
+nSeq <- seq_len(n)
+train_idx <- sample(nSeq, size)
+
+#  training and test sets
+heart_train <- heart_clean[ train_idx, ]
+heart_test  <- heart_clean[-train_idx, ]
+
 ```
 
-```{r a3-decision-boundary-grid, message=FALSE, warning=FALSE}
+
+```{r a2-fit-logistic-mode, message=FALSE, warning=FALSE}
+# Fit logistic regression models on training and test sets
+logit_train <- glm(CVD ~ GLUCOSE + SYSBP, data = heart_train, family = binomial)
+logit_test  <- glm(CVD ~ GLUCOSE + SYSBP, data = heart_test, family = binomial)
+```
+
+
+
+
+```{r a2-show-models-side-by-side, echo=FALSE}
+
+# Capture summaries as character strings
+train_summary <- capture.output(summary(logit_train))
+test_summary  <- capture.output(summary(logit_test))
+hlr_train <- gsub("[[:cntrl:]]", "", train_summary)
+hlr_test  <- gsub("[[:cntrl:]]", "", test_summary)
+cat(paste(hlr_train, collapse = "\n"))
+cat(paste(hlr_test, collapse = "\n"))
+
+```
+
+
+
+```{r}
+
+
+
+# Extract summaries
+train_sum <- summary(logit_train)
+test_sum  <- summary(logit_test)
+
+# Create a data frame combining coefficients from both models
+coef_table <- data.frame(
+  Variable = rownames(train_sum$coefficients),
+  Estimate_Train = round(train_sum$coefficients[, "Estimate"], 5),
+  `z value (Train)` = round(train_sum$coefficients[, "z value"], 3),
+  `Pr(>|z|) (Train)` = format.pval(train_sum$coefficients[, "Pr(>|z|)"], eps = 1e-16, digits = 2),
+  Estimate_Test = round(test_sum$coefficients[, "Estimate"], 5),
+  `z value (Test)` = round(test_sum$coefficients[, "z value"], 3),
+  `Pr(>|z|) (Test)` = format.pval(test_sum$coefficients[, "Pr(>|z|)"], eps = 1e-16, digits = 2)
+)
+
+# Print with knitr::kable
+kable(coef_table, caption = "Logistic Regression Coefficients: Training vs Test Set")
+
+```
+
+```{r logistic-summary-flextable, message=FALSE, warning=FALSE}
+library(dplyr)
+library(flextable)
+
+# Function to extract summary
+extract_stat <- function(model, label) {
+  coefs <- summary(model)$coefficients
+  data.frame(
+    Statistic = c("Estimate", "z value", "Pr(>|z|)"),
+    `(Intercept)` = round(c(coefs[1,1], coefs[1,3], coefs[1,4]), 3),
+    GLUCOSE       = round(c(coefs[2,1], coefs[2,3], coefs[2,4]), 3),
+    SYSBP         = round(c(coefs[3,1], coefs[3,3], coefs[3,4]), 3),
+    Group         = label
+  )
+}
+
+# Create table data
+tbl <- bind_rows(
+  extract_stat(logit_train, "Train"),
+  extract_stat(logit_test,  "Test")
+)
+
+# Add wrapped interpretations
+tbl$Interpretation <- c(
+  "Baseline log-odds of CVD\nwhen all predictors are zero",
+  "Increase in log-odds of CVD\nper unit increase in GLUCOSE",
+  "Increase in log-odds of CVD\nper mmHg increase in SYSBP",
+  "Baseline log-odds of CVD\nwhen all predictors are zero",
+  "Increase in log-odds of CVD\nper unit increase in GLUCOSE",
+  "Increase in log-odds of CVD\nper mmHg increase in SYSBP"
+)
+
+# Use flextable
+ft <- flextable(tbl) |>
+  set_caption("Logistic Regression Summary by Coefficient and Statistic") |>
+  autofit() |>
+  fontsize(size = 12, part = "all") |>
+  align(align = "center", part = "all") |>
+  theme_booktabs() |>
+  padding(padding = 4, part = "all") |>
+  line_spacing(space = 1.2) |>
+  flextable::compose(j = "Interpretation", value = as_paragraph(Interpretation)) |>
+  border(i = 3, border.bottom = fp_border(width = 2))  # strong line after training rows
+
+ft
+
+```
+
+
+```{r a3a-decision-boundary-grid, message=FALSE, warning=FALSE}
 # A3. Decision Boundary Grid
 grid_vals <- expand.grid(
-  GLUCOSE = seq(min(heart_df_clean$GLUCOSE, na.rm = TRUE), max(heart_df_clean$GLUCOSE, na.rm = TRUE), length.out = 100),
-  SYSBP   = seq(min(heart_df_clean$SYSBP, na.rm = TRUE), max(heart_df_clean$SYSBP, na.rm = TRUE), length.out = 100)
+  GLUCOSE = seq(min(heart_test$GLUCOSE, na.rm = TRUE), max(heart_test$GLUCOSE, na.rm = TRUE), length.out = 100),
+  SYSBP   = seq(min(heart_test$SYSBP, na.rm = TRUE), max(heart_test$SYSBP, na.rm = TRUE), length.out = 100)
 )
-grid_vals$prob <- predict(heart_model, newdata = grid_vals, type = "response")
+grid_vals$prob <- predict(logit_train, newdata = grid_vals, type = "response")
 ```
 
-```{r a4-logistic-decision-plot, message=FALSE, warning=FALSE}
+```{r a3b-logistic-decision-plot, message=FALSE, warning=FALSE}
 # A4. ggplot for Logistic Regression
-ggph_logistic <- ggplot(heart_df_clean, aes(x = GLUCOSE, y = SYSBP, colour = as.factor(CVD))) +
+ggph_logistic <- ggplot(heart_test, aes(x = GLUCOSE, y = SYSBP, colour = as.factor(CVD))) +
   geom_point(alpha = 0.6) +
   stat_contour(data = grid_vals, aes(z = prob), breaks = 0.5, colour = "black") +
   labs(title = "Logistic Regression: GLUCOSE vs SYSBP", colour = "CVD") +
@@ -39,36 +166,30 @@ ggph_logistic <- ggplot(heart_df_clean, aes(x = GLUCOSE, y = SYSBP, colour = as.
 print(ggph_logistic)
 ```
 
-
-
-
-```{r a5-model-evaluation, message=FALSE, warning=FALSE}
+```{r a4a-model-evaluation, message=FALSE, warning=FALSE}
 # A5. Model Evaluation
-heart_df_clean$prob <- predict(heart_model, type = "response")
-heart_df_clean$pred <- ifelse(heart_df_clean$prob > 0.5, 1, 0)
+heart_test$prob <- predict(logit_test, type = "response")
+heart_test$pred <- ifelse(heart_test$prob > 0.5, 1, 0)
 
 # Accuracy calculation
-accuracy <- mean(heart_df_clean$pred == heart_df_clean$CVD)
+accuracy <- mean(heart_test$pred == heart_test$CVD)
 cat(sprintf("\nModel Accuracy (Threshold = 0.5): %.2f\n", accuracy))
 
 # Optional confusion matrix
-conf_mat <- table(Predicted = heart_df_clean$pred, Actual = heart_df_clean$CVD)
+conf_mat <- table(Predicted = heart_test$pred, Actual = heart_test$CVD)
 print(conf_mat)
 ```
 
- 
-```{r a5-qda-model-token, message=FALSE, warning=FALSE}
+```{r a5a-qda-model, message=FALSE, warning=FALSE}
 # A5. QDA model (token)
-heart_qda_df <- heart_df %>%
-  select(GLUCOSE, SYSBP, CVD) %>%
+heart_qda_df <- heart_df |>
+  select(GLUCOSE, SYSBP, CVD) |>
   na.omit()
 
 qda_model <- qda(CVD ~ GLUCOSE + SYSBP, data = heart_qda_df)
 ```
- 
- 
 
-```{r a6-qda-decision-boundary-token-ggplot, message=FALSE, warning=FALSE}
+```{r a5b-qda-boundary, message=FALSE, warning=FALSE}
 
 grid_qda <- expand.grid(
   GLUCOSE = seq(min(heart_qda_df$GLUCOSE), max(heart_qda_df$GLUCOSE), length.out = 100),

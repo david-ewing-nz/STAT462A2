@@ -1,0 +1,20 @@
+---
+title: "WBS2"
+author: "Summer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Work Breakdown Structure of Q2
+
+
+
+
+### steps:
+
+    -   English: Determine the number of distinct color classes present in the dataset.
+    -   English: Fit a Quadratic Discriminant Analysis (QDA) algorithm to the classification problem.
+    -   English: Visualize the decision boundaries of the fitted QDA model in a suitable way.
+    -   English: Test the QDA algorithm on the input (200, 0, 200).
+    -   English: Determine what color name is predicted by the algorithm for the input (200, 0, 200).
+    -   English: (Opportunity for extra effort) Learn about k-Nearest Neighbors (kNN) classification, implement it, and compare its performance with the QDA algorithm.
