@@ -1,0 +1,659 @@
+---
+title: "Q1"
+author: "Summer"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **Question A: Applying Logistic Regression to predict mortality from blood glucose and blood pressure**
+
+# Set up
+
+## Environment Set up
+
+```{r, include=F,eval=T}
+# DEE: This chunk was set up with the aid of ChatGPT
+#      The intent is to load updates quietly thus not
+#      spending undue time with the logistics of getting 
+#      setup. 
+
+options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
+
+# Required packages
+#
+required_packages <- c("conflicted", "ggplot2", "dplyr", "class",  
+                       "tidyverse", "flextable", "skimr", "GGally",
+                       "MASS", "car", "formatR", "mice","tinytex" ,
+                       "caret", "gridExtra", "fastDummies" ,"leaps",
+                       "extrafont",  "officer", "Metrics","glmnet" ,
+                       "knitr", "kableExtra", "cowplot","readr","mice","plotly","pROC"
+                       ) 
+
+# Install and load missing packages in a single step and quietly
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)  # Load package after installation check
+}
+
+conflict_prefer("filter", "dplyr"); conflict_prefer("select", "dplyr")
+conflicts_prefer(tidyr::expand);conflicts_prefer(plotly::layout);conflicts_prefer(pROC::auc)
+
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, width = 70, cache=FALSE)
+
+```
+
+## Function Set up
+
+### Function: read_csv_from_zip
+
+Unzips a specified ZIP file to read a CSV file while keeping specified columns.
+
+Usage: read_csv_from_zip(zip_filepath, csv_filename, columns_to_keep)
+
+```{r, include=F , eval=T}
+read_csv_from_zip <- function(zip_filepath, csv_filename, columns_to_keep) {
+  unzip(zip_filepath, files = csv_filename) %>%
+    read_csv() %>%
+    select(columns_to_keep)
+}
+```
+
+### Function get_csv_column_names_from_zip
+
+Extracts column names from a CSV file within a ZIP archive without reading the entire file.
+
+Usage: get_csv_column_names_from_zip(zip_filepath, csv_filename)
+
+```{r}
+get_csv_column_names_from_zip <- function(zip_filepath, csv_filename) {
+  # 1. Extract the CSV file to a temporary directory
+  unzip(zip_filepath, files = csv_filename, exdir = tempdir())
+  temp_csv_path <- file.path(tempdir(), csv_filename)
+
+  # 2. Read the CSV file, reading only the header row (n_max = 0)
+  data <- read_csv(temp_csv_path, n_max = 0)
+
+  # 3. Get the column names
+  column_names <- names(data)
+
+  # 4. Return the column names
+  return(column_names)
+}
+```
+
+### Function: split_data
+
+Splits a dataset into training and test sets based on a specified training ratio.
+
+Usage: split_data(data, train_ratio = 0.8)
+
+```{r}
+# Function to split data into training and test sets
+split_data <- function(data, train_ratio = 0.8) {
+  # Set a seed for reproducibility and to minimize RAM usage
+  set.seed(62380486) 
+  # validate train_ratio range
+  if (train_ratio <= 0 || train_ratio >= 1) {
+  stop("Error: train_ratio must be between 0 and 1 (exclusive).")
+}
+  # Randomly select the specified percentage of indices for the training set
+  train_ind <- sample(1:nrow(data), 
+                      size = floor(train_ratio * nrow(data)),
+                      replace = FALSE)
+  
+  # Use the remaining indices for the test set
+  test_ind <- setdiff(1:nrow(data), train_ind)
+  
+  # Create training data using the selected indices
+  train_data <- data[train_ind, , drop = FALSE]
+  rownames(train_data) <- NULL
+
+  # Create test data using the remaining indices
+  test_data <- data[test_ind, , drop = FALSE]
+  rownames(test_data) <- NULL
+  
+  # Return both training and test data as a list
+  return(list(train = train_data, test = test_data))
+}
+
+```
+
+### Function: confusion_matrix_cal
+
+Calculates the confusion matrix and misclassification rate for a classification model.
+
+Usage: confusion_matrix_cal(model = logreg.fit, test_data = sp_data\$test, threshold = 0.1, outcome_variable = "DEATH")
+
+```{r}
+confusion_matrix_cal <- function(model=logreg.fit, test_data=sp_data$test, threshold = 0.1, outcome_variable = "DEATH") {
+  # 1. Predict probabilities (using the test set)
+  predicted_probabilities <- predict(model, newdata = test_data, type = "response")
+
+  # 3. Convert to binary classification
+  predicted_classes <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+  # 4. Calculate the confusion matrix (using the test set)
+  confusion_matrix <- table(Actual = test_data[[outcome_variable]], Predicted = predicted_classes)
+  # print(paste("------"))
+  # print(paste("threshold:",threshold))
+  # print(confusion_matrix)
+  
+  # 5. Calculate the misclassification rate
+  misclassification_rate <- (confusion_matrix[1, 2] + confusion_matrix[2, 1]) / sum(confusion_matrix)
+  # print(paste("misclassification_rate:",misclassification_rate))
+  
+  return(list(misclassification_rate = misclassification_rate, confusion_matrix = confusion_matrix))
+ }
+
+```
+
+### Function: roc_curve_plot
+
+Generates and plots the ROC curve for a classification model, and calculates the AUC.
+
+Usage: roc_curve_plot(model = logreg.fit, test_data = sp_data\$test, outcome_variable = "DEATH")
+
+```{r}
+# ROC curve function
+roc_curve_plot <- function(model=logreg.fit, test_data=sp_data$test, outcome_variable = "DEATH") {
+
+  # 1. Predict probabilities (using the test set)
+  predicted_probabilities <- predict(model, newdata = test_data, type = "response")
+
+  # 2. Create ROC object
+  roc_obj <- roc(test_data[[outcome_variable]], predicted_probabilities)
+
+  # 3. Plot ROC curve
+  plot(roc_obj,
+       main="ROC Curve",
+       col="blue",
+       lwd=2,
+       xlab = "1 - Specificity (False Positive Rate)",  # 修改 X 轴标签
+       ylab = "Sensitivity (True Positive Rate)",      # 修改 Y 轴标签
+       xlim=c(0,1),
+       ylim=c(0,1),
+       print.auc=TRUE,         # 显示 AUC
+       auc.polygon = TRUE,     # 填充 AUC 区域
+       auc.polygon.col = "skyblue2" # 填充颜色
+  )
+
+  # Return ROC object (optional)
+  return(roc_obj)
+}
+
+```
+
+# Data Preparation
+
+## Load Data and DEA Check
+
+```{r}
+# load data from dataset using common function read_csv_from_zip
+xdata <- read_csv_from_zip(zip_filepath = "./data/data_assignment_2.zip",
+                          csv_filename = "heart.csv",
+                          columns_to_keep = c("DEATH", "GLUCOSE", "SYSBP")
+                          )
+
+skim(xdata)
+```
+
+## Missing Data Imputing
+
+Here, we noticed that GLUCOSE has 1440 missing value, accounting for 12.38% of total rows. We are adopting a **Median Imputation** strategy after comparing below methods' defects.
+
+-   **Complete Case Deletion:** The 12.38% missing data proportion is too high, risking significant information loss and bias.
+
+-   **Regression/Classification Imputation:** Using other variables (like SYSBP and DEATH) to predict GLUCOSE introduces data leakage when DEATH is the target variable.
+
+-   **Missing Values as a Separate Category:** This approach is unsuitable for numerical features like GLUCOSE as it can distort the variable's distribution and introduce bias.
+
+```{r}
+# Calculate the median of the GLUCOSE variable, ignoring NA values
+glucose_median <- median(xdata$GLUCOSE, na.rm = TRUE)
+
+# Impute the missing values in GLUCOSE with the calculated median
+xdata$GLUCOSE[is.na(xdata$GLUCOSE)] <- glucose_median
+
+# Check missing data with skim method, this time, GLUCOSE's missing shoudl count 0
+skim(xdata)
+```
+
+## Data Splitting
+
+### Q(a). Split the dataset into a training set (80% of entries) and a test set (20% of entries).
+
+```{r}
+sp_data <- split_data(data=xdata, train_ratio = 0.8)
+sp_data
+```
+
+# Data Visualisation
+
+### Q(b). Visualise the relationship between `DEATH` , `GLUCOSE` and `SYSBP` (s a suitable way. Form an initial hypothesis of what to look for when doing the classification.
+
+```{r}
+
+fig <- plot_ly(xdata, x = ~GLUCOSE, y = ~SYSBP, z = ~DEATH,
+               color = ~factor(DEATH),  # Convert DEATH to a factor for coloring
+               colors = c("blue", "red"),
+               marker = list(size = 2),
+               symbol = "DEATH",
+               alpha = 0.45,
+               type = "scatter3d",
+               mode = "markers",
+              # Add mouse hover text
+               text = ~paste("GLUCOSE:", GLUCOSE, "<br>SYSBP:", SYSBP, "<br>DEATH:", DEATH)
+               ) 
+
+
+fig <- fig %>% layout(
+  scene = list(
+    xaxis = list(title = "GLUCOSE"),
+    yaxis = list(title = "SYSBP"),
+    zaxis = list(title = "DEATH")
+  ))
+
+fig  # show figure
+
+
+```
+
+```{r}
+
+# 1. 创建 2D 散点图
+fig <- plot_ly(xdata, 
+               x = ~GLUCOSE, 
+               y = ~SYSBP,
+               color = ~factor(DEATH),  # Convert DEATH to a factor for coloring
+               colors = c("blue", "red"),
+               marker = list(size = 5, opacity = 0.7),
+               type = "scatter",
+               mode = "markers",
+               # Add mouse hover text
+               text = ~paste("GLUCOSE:", GLUCOSE, "<br>SYSBP:", SYSBP, "<br>DEATH:", DEATH),
+               hoverinfo = "text"  # Only show hover text
+) 
+
+# 2. 添加布局 (标题和轴标签)
+fig <- fig %>% layout(
+  title = "Relationship between GLUCOSE, SYSBP, and DEATH",
+  xaxis = list(title = "GLUCOSE"),
+  yaxis = list(title = "SYSBP"),
+  legend = list(title = "DEATH")
+)
+
+# 3. 显示图形
+fig  # show figure
+
+```
+
+# Binary Logistic Regression Model
+
+## Hypothesis Formation
+
+We will use a function to apply on `GLUCOSE` and `SYSBP` to get the probability of *`DEATH`* being "1" (or "0", they are almost the same since it's a binary situation), this can be written as $$Pr(G\ = 1|X)$$
+
+where $X$ is a vector, containing features $x_1: GLUCOSE, x_2: SYSBP$; $G$ represents the output binary variable `DEATH`.
+
+To make sure the function will always return the result between 0 and 1, we can use the following `sigmoid function` to estimate the probability of being class 1:
+
+$$g_1(x) =  \mathbb P(G = 1| X=x) = \frac{\exp(b_0 + b_1x_1 + b_2x_2)}{1 + \exp(b_0 + b_1 x + b_2x_2)} $$ so the probability of being class 0 would be: $$ g_0(x) = \mathbb P(G = 0| X=x)   = \frac{1}{1 + \exp(b_0 + b_1 x + b_2x_2)}  $$
+
+The problem now is to find the optimal combination of `b0`, `b1` and `b2` from the training set.
+
+## Fit Logistic Regression Model
+
+### Q(c). On the training set, fit a (multiple) logistic regression model.
+
+*N.B. In this question, you are allowed to use `glm`.*
+
+```{r}
+logreg.fit <- glm(
+    formula = DEATH ~ GLUCOSE + SYSBP,
+    family = binomial,
+    data = sp_data$train, 
+    na.action = na.omit,
+    model = TRUE,
+    method = "glm.fit",
+    x = FALSE,
+    y = TRUE,
+    contrasts = NULL
+)
+summary(logreg.fit)
+
+
+```
+
+So we get the fitted coefficients in function: $$g_1(x) =  \mathbb P(G = 1| X=x) = \frac{\exp(b_0 + b_1x_1 + b_2x_2)}{1 + \exp(b_0 + b_1 x + b_2x_2)} $$
+
+```{r}
+logreg.fit$coefficients
+```
+
+## Apply Trained Model to Test Dataset
+
+```{r}
+# 1. Predict probabilities (using the test set)
+predicted_probabilities <- predict(logreg.fit, newdata = sp_data$test, type = "response")
+
+# 2. Set the threshold
+threshold <- 0.5
+
+# 3. Convert to binary classification
+predicted_classes <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+# 4. Calculate the confusion matrix (using the test set)
+confusion_matrix <- table(Actual = sp_data$test$DEATH, Predicted = predicted_classes)
+
+# 5. Calculate the misclassification rate
+misclassification_rate <- (confusion_matrix[1, 2] + confusion_matrix[2, 1]) / sum(confusion_matrix)
+
+
+```
+
+### Q(c).i Compute the misclassification rates on the test set
+
+```{r}
+misclassification_rate
+```
+
+### Q(c).ii Compute the confusion matrix on the test set
+
+```{r}
+confusion_matrix
+```
+
+### Q(c).iii Visualise your fitted classification models suitable
+
+```{r}
+
+# 1. Create a grid to cover the range of GLUCOSE and SYSBP
+glucose_range <- seq(min(sp_data$train$GLUCOSE, na.rm = TRUE), max(sp_data$train$GLUCOSE, na.rm = TRUE), length.out = 50)
+sysbp_range <- seq(min(sp_data$train$SYSBP, na.rm = TRUE), max(sp_data$train$SYSBP, na.rm = TRUE), length.out = 50)
+grid <- expand.grid(GLUCOSE = glucose_range, SYSBP = sysbp_range)
+
+# 2. Use the model to predict probabilities on the grid
+grid$predicted_probability <- predict(logreg.fit, newdata = grid, type = "response")
+
+# 3. Convert the predicted probabilities to a matrix
+probability_matrix <- matrix(grid$predicted_probability, nrow = length(glucose_range), ncol = length(sysbp_range))
+
+# 4. Create a 2D contour plot
+fig <- plot_ly(
+  x = glucose_range,
+  y = sysbp_range,
+  z = probability_matrix,
+  type = "contour",
+  contours = list(
+    showlabels = TRUE,
+    labelfont = list(
+      size = 12,
+      color = "black"
+    ),
+    start = 0,
+    end = 1,
+    size = 0.1
+  )
+) %>%
+  layout(
+    title = "2D Decision Boundary with Test Data",
+    xaxis = list(title = "GLUCOSE"),
+    yaxis = list(title = "SYSBP")
+  )
+
+# 5. Add the test data points, using DEATH as color and hover text
+fig <- fig %>% add_trace(
+  data = sp_data$test,
+  x = ~GLUCOSE,
+  y = ~SYSBP,
+  type = "scatter",
+  mode = "markers",
+  marker = list(
+    size = 5,
+    color = ifelse(sp_data$test$DEATH == 1, "red", "blue"),
+    opacity = 0.8
+  ),
+  text = ~ifelse(DEATH == 1, "DEATH=1", "DEATH=0"),  # Set hover text
+  hoverinfo = "text",  # Only show hover text
+  name = "Test Data"
+)
+
+# 6. Add legend (optional, can adjust position)
+fig <- fig %>% layout(
+  showlegend = TRUE,
+  legend = list(
+    x = 0.85,  # x coordinate of the legend (0-1)
+    y = 0.85   # y coordinate of the legend (0-1)
+  )
+)
+
+# 7. Show the plot
+fig
+
+
+```
+
+### Q(c).iii Make a comment or observation regarding goodness of fit
+
+-   Dark blue indicates a low probability of DEATH (approaching 0), whereas yellow in the upper right indicates a high probability of DEATH (approaching 1).
+
+-   These lines are equiprobability curves that delineate the area into chromatic regions. A consistent color within a region signifies a uniform probability of DEATH.
+
+-   There's a concentration of observations in the lower left, with a clear shift towards more red observations (DEATH = 1) in the upper right.
+
+-   The graph's red and blue points originate from the test dataset (`xdata$test`), but the decision boundary is determined solely by the training dataset (`xdata$train`).
+
+### *Q(d). Opportunities for showing extra effort:*
+
+#### *Q(d1).* For public health purposes it is more important to catch *positives*, i.e. potential mortality risks, even if they end up not eventuating. In other words, false negatives are more dangerous than false positives. In order to address this problem, we can change the threshold at which an patient is classified as being “risky”: Instead of setting the decision boundary at probability $p=50\%$, we classify a customer as “risky” (i.e., we predict DEATH) if the risk of them dying is higher than $10\%$. Modify your logistic regression to do this, and repeat the tasks of question c).
+
+In order to make these process more smoothly, we define a function `confusion_matrix_cal` (refer to chapter Function Set up) to deal with the parameter `threshold` and other optional `parameters`.
+
+```{r}
+confusion_matrix_cal(threshold = 0.1)
+confusion_matrix_cal(threshold = 0.5)
+```
+
+#### Q(d2). Compare the performance of logistic regression and discriminant analysis on this classification problem.
+
+We can use the ROC curve and AUC to measure the performance of different models. In this case, our focus is on the false negative (FN) value (predicting survival (DEATH = 0) but the patient actually died (DEATH = 1)).
+
+The overall performance of the classifier is given by the area under the curve (AUC). The larger the AUC, the better the classifier.(Lecture Week 5 - Classification and Logistic Regression STAT 462 2025-S1, page 25, Thomas Li, University of Canterbury)
+
+N.B. `roc_curve_plot` function refers chapter Function Set up.
+
+# ROC Curve Visualization
+
+```{r}
+# logistic regression's ROC
+roc_logreg.fit <- roc_curve_plot(model = logreg.fit, test_data = sp_data$test)
+
+# discriminant analysis's ROC
+# roc_qd.fit <- roc.fi_curve_plot(model = qd.fit, test_data = sp_data$test)
+
+```
+
+#### Q(d3). Identify strong risk factors from this dataset and communicate your results.
+
+By expanding our $g1​(x)$ and $g2​(x)$ functions from a binary model to a multiple-class model, we can incorporate more risk factors into our classification fitting.
+
+$$g_1(x) =  \mathbb P(G = 1| X=x) = \frac{\exp(b_0 + b_1x_1 + b_2x_2 + ... + b_ix_i)}{1 + \exp(b_0 + b_1 x + b_2x_2 + ... + b_ix_i)} $$
+
+$$ g_0(x) = \mathbb P(G = 0| X=x)   = \frac{1}{1 + \exp(b_0 + b_1 x + b_2x_2 + ... + b_ix_i)}  $$
+
+where, $x_i$ represents different risk factor in our dataset, refers to this documentation: `FHS_Teaching_Longitudinal_Data_Documentation_2021a.pdf`.
+
+Now, we refit our model using all risk factors.
+
+## Load Data and DEA Check
+
+```{r}
+read_columns=c("DEATH", "SEX","TOTCHOL","AGE","SYSBP","DIABP","CURSMOKE","CIGPDAY","BMI","DIABETES","BPMEDS","HEARTRTE","GLUCOSE","educ","PREVCHD","PREVAP","PREVMI","PREVSTRK")
+
+xdata2 <- read_csv_from_zip(zip_filepath = "./data/data_assignment_2.zip",
+                          csv_filename = "heart.csv",
+                          columns_to_keep = read_columns
+                          )
+ 
+skim(xdata2)
+
+```
+
+## Missing Data Imputing
+
+#### Function: fill_missing_with_median
+
+Fills missing values in a data frame with the median of each column.
+
+Usage: fill_missing_with_median(data)
+
+```{r}
+fill_missing_with_median <- function(data) {
+  # Check if data is a data frame
+  if (!is.data.frame(data)) {
+    stop("data must be a data frame")
+  }
+
+  # Find columns containing missing values
+  missing_cols <- colnames(data)[colSums(is.na(data)) > 0]
+
+  # Check if there are any missing values
+  if (length(missing_cols) == 0) {
+    message("No missing values found in the data frame")
+    return(data)
+  }
+
+  # Loop through columns with missing values
+  for (col in missing_cols) {
+    # Calculate the median of the current column (ignoring NA values)
+    median_val <- median(data[[col]], na.rm = TRUE)
+
+    # Fill missing values in the current column with the median
+    data[[col]][is.na(data[[col]])] <- median_val
+  }
+
+  # Return the modified data frame
+  return(data)
+}
+
+xdata3 <- fill_missing_with_median(data = xdata2)
+```
+
+```{r}
+skim(xdata3)
+```
+
+## Data Splitting
+
+```{r}
+sp_data2 <- split_data(data = xdata3,train_ratio = 0.8)
+sp_data2
+```
+
+## Fit Multiple Logistic Regression Model
+
+```{r}
+# Get column names from xdata3
+variable_names <- colnames(xdata3)
+
+# Remove the response variable (DEATH) if it's also in xdata3
+# Make sure DEATH is not in variable_names
+variable_names <- variable_names[variable_names != "DEATH"]
+
+# Use reformulate() function to build the formula
+formula <- reformulate(termlabels = variable_names, response = "DEATH")
+
+# Use glm() function
+mul_logreg.fit <- glm(
+  formula = formula,
+  family = binomial,
+  data = sp_data2$train,
+  na.action = na.omit,
+  model = TRUE,
+  method = "glm.fit",
+  x = FALSE,
+  y = TRUE,
+  contrasts = NULL
+)
+
+summary(mul_logreg.fit)
+
+
+```
+
+## Finding Most Important Risk Factors
+
+```{r}
+# 1. Extract significant factors
+significant_factors <- names(coef(mul_logreg.fit))[summary(mul_logreg.fit)$coefficients[, "Pr(>|z|)"] < 0.05]
+
+# 2. Create a data frame to store the results
+results_df <- data.frame(
+  Factor = significant_factors,
+  Estimate = coef(mul_logreg.fit)[significant_factors],
+  P_value = summary(mul_logreg.fit)$coefficients[significant_factors, "Pr(>|z|)"]
+)
+
+# 3. Sort the data frame by the absolute value of the coefficients
+results_df <- results_df[order(abs(results_df$Estimate), decreasing = TRUE), ]
+
+# 4. Add a rank column
+results_df$Rank <- 1:nrow(results_df)
+
+# 5. Reorder the columns
+results_df <- results_df[, c("Rank", "Factor", "Estimate", "P_value")]
+
+# 6. Print the table using kable
+kable(results_df, format = "html", row.names = FALSE)  # 或者 format = "html"
+
+
+
+```
+
+From above table, we can guess the most important factors leading DEATH to 1 by the rank number in table:
+
+-   `PREVSTRK`, `PREVMI`, and `DIABETES` are the top three risk factors, indicating higher probabilities of `DEATH`.
+
+-   A `SEX` value of 1 (Male) indicates a higher risk than a `SEX` value of 2 (Female). This aligns with the general observation that women tend to live longer than men.
+
+-   Three acquired traits, rather than genetically determined ones, appear to influence motality. Smoking(`CURSMOKE` and `CIGPDAY`) reduce lifespan while education( `educ` ) extends it.
+
+## Apply Trained Model to Test Dataset
+
+```{r}
+# 1. Predict probabilities (using the test set)
+predicted2_probabilities <- predict(mul_logreg.fit, newdata = sp_data2$test, type = "response")
+
+# 2. Set the threshold
+threshold <- 0.1
+
+# 3. Convert to binary classification
+predicted2_classes <- ifelse(predicted2_probabilities > threshold, 1, 0)
+
+# 4. Calculate the confusion matrix (using the test set)
+confusion_matrix2 <- table(Actual = sp_data2$test$DEATH, Predicted = predicted2_classes)
+
+# 5. Calculate the misclassification rate
+misclassification_rate2 <- (confusion_matrix[1, 2] + confusion_matrix[2, 1]) / sum(confusion_matrix)
+
+misclassification_rate2
+confusion_matrix2
+```
+
+# ROC Curve Visualization
+
+```{r}
+roc_curve_plot(model = mul_logreg.fit,test_data = sp_data2$test,outcome_variable = "DEATH")
+
+```
+
+The overall performance of the classifier `mul-logreg.fit` is superior to that of the `logreg.fit` classifier, as indicated by their respective AUC values of 0.765 and 0.654.
