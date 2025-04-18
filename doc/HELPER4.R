@@ -399,7 +399,7 @@ pretty_glm <- function(model) {
       ),
       stringsAsFactors = FALSE
     )
-    pretty_df(df, caption = "GLM Model Summary")
+    pretty_df(df,  "GLM Model Summary")
   }, error = function(e) {
     cat("Error in pretty_glm():", conditionMessage(e), "\n")
     NULL

@@ -100,10 +100,13 @@ if ("conflicted" %in% loadedNamespaces()) {
 #---------- THIS IS UNCONDITIONAL IN PARENT ------
 
 ```{r wsb-include-helper, include=FALSE}
+
+# REMEMBER _SUBDIR 
 knitr::opts_chunk$set(cache = FALSE)
 
 # Only include helper if NOT running as a child
-if (!isTRUE(knitr::opts_knit$get("child"))) {
+is_CHILD <- isTRUE(knitr::opts_knit$get("child"))
+if (!is_CHILD) {
 
   # Try to get current Rmd file path
   this_file <- knitr::current_input()
@@ -196,8 +199,7 @@ hp_actual_class <- hp_test$DEATH
 
 ```
 ### Visualise the relationship between DEATH, GLUCOSE and SYSBP
-
-<!-- Inserted from WBS: heart-wsb-step-02 -->
+ 
 ```{r wsb-step-04-visual}
 cat("### Visualise the relationship between DEATH, GLUCOSE and SYSBP\n")
 
@@ -247,26 +249,28 @@ pretty_ggplot(p_combined, title = "Log/Linear Scale Comparison Grid")
 
 ### Form an initial hypothesis of what to look for when doing the classification
 
-
-<!-- Inserted from WBS: heart-wsb-step-03 -->
+ ->
 ```{r  heart-wsb-step-03}
 print("We hypothesise that high GLUCOSE and high SYSBP are associated with higher DEATH risk.")
 ```
 
 ### Fit a logistic regression model on the training set
 
-
-<!-- Inserted from WBS: heart-wsb-step-04 -->
+ 
 ```{r  heart-wsb-step-04}
-hp_glm_metrx <- glm(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train, family = "binomial")
-pretty_glm(hp_glm_metrx)
+               
+equation_lg <- DEATH ~ GLUCOSE + SYSBP + AGE
+hp_model <- glm(equation_lg, data = hp_train, family = "binomial")
+pretty_glm(hp_model)
+
+
 ```
 
 
 ```{r wsb-step-05-model}
 # Fit a logistic regression model on training data
 # Summarize using pretty_glm
-hp_model <- glm(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train, family = "binomial")
+ 
 pretty_glm(hp_model)
 ```
 
@@ -301,61 +305,9 @@ rownames(hp_cmtx_df) <- NULL
 # Print formatted summaries
 print(pretty_df(hp_cmtx_df, title = "Logistic Regression Confusion Matrix (Threshold = 0.5)"))
 print(pretty_df(hp_mtrx_df, title = "Logistic Regression Performance (Threshold = 0.5)"))
-
+```
  
-```{r wsb-step-06-predict}
-# Generate predicted probabilities and classify using predict_classes
-hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
-hp_pred_class <- predict_classes(hp_pred_probs, threshold = 0.5)
-```
-
-### Compute the confusion matrix on the test set
-```{r wsb-step-07-eval-cm}
-cat("### Logistic Regression Evaluation (Threshold = 0.50)\n")
-
-
-
-hp_pred_probs <- predict(hp_glm_metrx, newdata = hp_test, type = "response")
-hp_pred_class <- predict_classes(hp_pred_probs, threshold = 0.5)
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
-
-hp_cmtx_test <- make_conf_matrix(hp_pred_class, hp_actual_class)
-hp_metrics <- eval_conf_matrix(hp_cmtx_test)
-hp_mtrx_df <- summarise_metrics(hp_metrics)
-
-hp_cmtx_df <- as.data.frame.matrix(hp_cmtx_test)
-hp_cmtx_df <- cbind(Predicted = rownames(hp_cmtx_df), hp_cmtx_df)
-rownames(hp_cmtx_df) <- NULL
-
-print(pretty_df(hp_cmtx_df, title = "Confusion Matrix (Threshold = 0.50)"))
-print(pretty_df(hp_mtrx_df, title = "Logistic Regression Performance (Threshold = 0.50)"))
-```
-#  . Predict on test set and evaluate
-```{r wsb-step-08-visualise}
-# Predict using QDA 
-# Add predicted class to test data
-# Define custom confusion matrix function
-# Create the confusion matrix
-c_qda_pred <- predict(c_qda_train, newdata = c_test)
-c_test$.pred_class <- c_qda_pred$class
-c_conf_mat <- make_conf_matrix(c_test$.pred_class, c_test$colour)
-
-# View it
-print(c_conf_mat)
-
-
-<!-- Inserted from WBS: heart-wsb-step-07 -->
-```{r  heart-wsb-step-07}
-
-h_ggp_1 = ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP, colour = hp_pred_class)) +
-  geom_point(alpha = 0.5) +
-  labs(
-    title = "Logistic Regression Decision Boundary (approx)",
-    colour = "Predicted"
-  )
-
-```
-
+  
 ### Comment on the goodness of fit
 ```{r  heart-wsb-step-08}
 #refere to hp_mtrx_df 
@@ -363,8 +315,7 @@ h_ggp_1 = ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP, colour = hp_pred_class)) +
 
 ### Supporting numeric metrics for evaluation criteria
 
-
-<!-- Inserted from WBS: heart-wsb-step-09 -->
+ 
 ```{r  heart-wsb-step-09}
 hp_pred_class_10 <- ifelse(hp_pred_probs > 0.1, 1, 0)
 hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE", "DEAD"))
@@ -374,7 +325,7 @@ hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE"
 # Confusion Matrix (Threshold = 0.10)
 
 
-<!-- Inserted from WBS: heart-wsb-step-10 -->
+ 
 ```{r wsb-step-10}
 #hp_misclass_rate_10 <- mean(hp_pred_class_10 != hp_actual_class)
 #hp_cmtx_10 = table(Predicted = h_pred_class_10, Actual = h_actual_class)
@@ -384,7 +335,7 @@ hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE"
 ```{r heart-wsb-step-10.1}
 cat("### Logistic Regression Evaluation (Threshold = 0.10)\n")
 
-hp_pred_probs <- predict(hp_glm_metrx, newdata = hp_test, type = "response")
+hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
 hp_pred_class_10 <- predict_classes(hp_pred_probs, threshold = 0.10)
 hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
 
@@ -401,20 +352,20 @@ print(pretty_df(hp_mtrx_df_10, title = "Logistic Regression Performance (Thresho
 ```
 
 ### QDA Model
-<!-- Inserted from WBS: heart-wsb-step-11 -->
+ 
 ```{r heart-wsb-step-11}
-hp_qda_model <- qda(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train)```
+hp_qda_model <- qda(equation_lg, data = hp_train) 
 ```
 
 
-<!-- Inserted from WBS: heart-wsb-step-11 -->
+ 
 ### QDA Evaluation
-<!-- Inserted from WBS: heart-wsb-step-11.1 -->
+  a
 ```{r heart-wsb-step-11.1}
 cat("### QDA Evaluation\n")
 
 # Build QDA model using labeled data
-hp_qda_model <- qda(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train)
+hp_qda_model <- qda(equation_lg, data = hp_train)
 
 # Predict posterior probabilities and classes
 qda_output <- predict(hp_qda_model, newdata = hp_test)
@@ -442,8 +393,7 @@ print(pretty_df(hp_mtrx_df_qda, title = "QDA Model Performance"))
  
 
 ### Visualise the decision boundaries of the fitted QDA model in a suitable way
-
-<!-- Inserted from WBS: heart-wsb-step-12 -->
+ 
 ```{r heart-wsb-step-12}
 print("Visualise the decision boundaries of the fitted QDA model in a suitable way.")
 
@@ -464,21 +414,21 @@ print(ggp_qda_boundary)
 ### Identify strong risk factors and communicate results
 
 
-<!-- Inserted from WBS: heart-wsb-step-13 -->
+ 
 ### Fit a tree-based model to the training set
-<!-- Inserted from WBS: heart-wsb-step-13 -->
+ 
 ```{r heart-wsb-step-13}
 cat("### Fit a Tree-Based Model to the Training Set\n")
 
 # Fit classification tree to hpl_train
-hp_tree_model <- tree(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train)
+hp_tree_model <- tree(equation_lg, data = hp_train)
 
 # Optional: Display summary of the model
-print(summary(hpl_tree_model))
+print(summary(hp_tree_model))
 
 # Optional: Visualise the tree
-plot(hpl_tree_model)
-text(hpl_tree_model, pretty = 0)
+plot(hp_tree_model)
+text(hp_tree_model, pretty = 0)
 
 ```
 
@@ -487,7 +437,7 @@ text(hpl_tree_model, pretty = 0)
 cat("### Tree-Based or Optional Model Evaluation\n")
 
 # Generate predicted probabilities and classes
-hp_pred_probs <- predict(hp_tree_model, newdata = hp_test, type = "response")
+hp_pred_probs <- predict(hp_tree_model, newdata = hp_test, type = "vector")
 hp_pred_class <- predict_classes(hp_pred_probs[, "DEAD"], threshold = 0.5)
 hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
 
