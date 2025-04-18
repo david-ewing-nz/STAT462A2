@@ -48,7 +48,7 @@ knitr::opts_chunk$set(
   warning = FALSE,     # Whether warnings are printed
   error   = FALSE       # Whether errors stop execution
   )
-```
+ 
 
 #---------------- loading libraries ---------------------------
 #---------------- loading libraries ---------------------------
@@ -100,7 +100,8 @@ if ("conflicted" %in% loadedNamespaces()) {
 #---------- THIS IS UNCONDITIONAL IN PARENT ------
 
 ```{r COLOUR-include-helper, include=FALSE}
-# Only include helper if NOT running as a child
+
+
 is_CHILD <- isTRUE(knitr::opts_knit$get("child"))
 
 if (!is_CHILD) {
@@ -109,9 +110,9 @@ if (!is_CHILD) {
   HELPER_FILE <- "HELPER4.Rmd"
   HELPER_PATH <- file.path(getwd(), HELPER_FILE)
 
-  # Load the helper functions
   cat(knitr::knit_child(HELPER_PATH, envir = knitr::knit_global(), options = list(label = NULL)))
 }
+
 
 ```
 
