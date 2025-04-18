@@ -1,0 +1,546 @@
+---
+title:    "STAT462 Assignment 2"
+author: 
+  -       "David Ewing (82171165)"
+  -       "Xia Yu      (62380486)"
+date:     "`r Sys.Date()`"
+output:   
+  pdf_document:
+    latex_engine: xelatex
+    fig_caption:     true
+    number_sections: true
+    toc:             true
+    keep_tex:        true
+    fig_crop:        false         # disable pdfcrop 
+    includes:
+      in_header: ../doc/fonts.tex
+fontsize: 11pt
+geometry: margin=1in
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+    
+mainfont: Arial
+fontsize: 10pt
+---
+
+
+```{r parent-file-info, echo=FALSE, results='asis'}
+
+
+cat("**R Markdown file name:**", knitr::current_input(), "\n\n")
+cat("**R Markdown file name:**", rmarkdown::metadata$file, "\n")
+cat("**Rendered on:**", format(Sys.time(), "%Y.%m.%d %H:%M:00"),"\n")
+```
+
+```{r setup, include=FALSE}
+# This chunk was set up with the aid of ChatGPT.
+# The intent is to load updates quietly thus not
+
+# spending undue time with the logistics of getting 
+# setup. 
+
+
+#---------------- knitr::opts_chunk ---------------------------
+#---------------- knitr::opts_chunk ---------------------------
+
+knitr::opts_chunk$set(
+  dev.args = list(
+    png = list(type = "cairo")
+    ),
+  results = "markup",   # default("markup") "asis" "hide"	"hold"	"show"
+  echo    = TRUE,      # Whether the code is shown
+  eval    = TRUE,       # Whether the code is executed
+  message = FALSE,      # Whether messages are printed
+  warning = FALSE,     # Whether warnings are printed
+  error   = FALSE       # Whether errors stop execution
+  )
+
+#---------------- loading libraries ---------------------------
+#---------------- loading libraries ---------------------------
+
+# Load configuration for reproducibility and preferred CRAN mirror
+options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
+
+#library(conflicted) # before any other
+
+# Required packages
+required_packages <- c(
+  "caret",         # Model training utilities
+  "class",         # kNN 
+  "cowplot",       # Plot composition
+  "dplyr",         # Data wrangling
+  "flextable",     # Summary tables
+  "GGally",        # Pair plots
+  "ggplot2",       # Core plotting
+  "glmnet",        # Regularised regression
+  "glue",          # glue
+  "patchwork",      # ✅ for ggplot grid layouts
+  "rsample",         # initial_split
+  "kableExtra",    # Table formatting
+  "knitr",         # Inline rendering
+  "MASS",          # LDA/QDA and logistic
+  "officer",       # Word/PDF table styling (used by flextable)
+  "skimr",         # Data summaries
+  "tree",
+  "tidyverse",     # Core data science packages
+  "tibble"         # Modern data frames
+)
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+#---------------- conflict_prefer ------------------------------
+#---------------- conflict_prefer ------------------------------
+library(conflicted)
+if ("conflicted" %in% loadedNamespaces()) {
+  try(conflict_prefer("filter", "dplyr"), silent = TRUE)
+  try(conflict_prefer("select", "dplyr"), silent = TRUE)
+}
+
+```
+
+
+
+```{r deebug, include=FALSE}
+#---------------- DEEBUG functions -----------------------------
+#---------------- DEEBUG functions -----------------------------
+
+
+# ---- Pretty Data-frame with Type Summary and Preview ---------
+# ---- Pretty Data-frame with Type Summary and Preview ---------
+# works with flextable;  
+
+pretty_df <- function(df,
+                      title    = NULL,
+                      fontsize = 10,
+                      n        = 5) {
+  if (!is.data.frame(df)) {
+    stop("Input must be a data frame")
+  }
+
+  # Optional row slicing
+  if (n > 0) df <- head(df, n)
+  if (n < 0) df <- tail(df, abs(n))
+
+  ft <- flextable::flextable(df)
+
+  if (!is.null(title)) {
+    ft <- flextable::set_caption(ft, title)
+  }
+
+  ft <- ft |>
+    flextable::fontsize(size = fontsize, part = "all") |>
+    flextable::align(align = "center", part = "all") |>
+    flextable::theme_booktabs() |>
+    flextable::bold(i = 1, part = "header") |>
+    flextable::padding(padding = 5, part = "all")
+
+  return(ft)
+}
+
+
+
+pretty_df <- function(df,
+                      title    = NULL,
+                      fontsize = 10,
+                      n        = 5) {
+  if (!is.data.frame(df)) {
+    stop("Input must be a data frame")
+  }
+
+  # Optional row slicing
+  if (n > 0) df <- head(df, n)
+  if (n < 0) df <- tail(df, abs(n))
+
+  ft <- flextable::flextable(df)
+
+  if (!is.null(title)) {
+    ft <- flextable::set_caption(ft, title)
+  }
+
+  ft <- ft |>
+    flextable::fontsize(size = fontsize, part = "all") |>
+    flextable::align(align = "center", part = "all") |>
+    flextable::theme_booktabs() |>
+    flextable::bold(i = 1, part = "header") |>
+    flextable::padding(padding = 5, part = "all") |>
+    flextable::autofit()
+
+  return(ft)
+}
+
+
+
+
+# ---- Pretty Summary  with Type Summary and Preview ------
+# ---- Pretty Summary  with Type Summary and Preview ------
+# works with flextable; provides a summary of column types
+# and a preview
+
+pretty_summary <- \(df) {   # works with flextable 
+  ft = select(df, where(is.numeric)) |>
+    summarise(
+      across(
+        everything(),
+        .fns = list(
+          Mean     = \(x) mean(x, na.rm = TRUE),
+          Median   = \(x) median(x, na.rm = TRUE),
+          Min      = \(x) min(x, na.rm = TRUE),
+          Max      = \(x) max(x, na.rm = TRUE),
+          IQR      = \(x) IQR(x, na.rm = TRUE),
+          nNA      = \(x) sum(is.na(x))
+        )
+      )
+    ) |>
+    pivot_longer(
+      cols = everything(),
+      names_to = c("Variable", ".value"),
+      names_sep = "_"
+    ) |>
+    mutate(across(where(is.numeric), round, 2)) |>
+    flextable() |>
+    set_header_labels(
+      Variable = "Feature",
+      Mean     = "Mean",
+      Median   = "Median",
+      Min      = "Min",
+      Max      = "Max",
+      IQR      = "Interquartile Range",
+      nNA      = "Missing Values"
+    ) |>
+    autofit() |>
+    theme_vanilla()
+  }
+
+
+# ---- Pretty csv_read with Type Summary and Preview ------
+# ---- Pretty csv_read with Type Summary and Preview ------ 
+# works with flextable; provides a summary of column types
+# and a preview
+
+pretty_read_csv <- \(path, n = 5, col_names = TRUE, show_col_types = FALSE) {   
+  df <- readr::read_csv(path, show_col_types = FALSE, col_names = col_names)
+  df <- as.data.frame(df)
+  ft <- pretty_df(df,glue("CSV:{path}"))
+  return(list(df=df,ft=ft))
+}
+
+# ---- Pretty Excel Reader with Type Summary and Preview ----
+# ---- Pretty Excel Reader with Type Summary and Preview ----
+# Requires: readxl, flextable, purrr
+
+pretty_read_xlsx <- \(path, sheet = 1, col_names = TRUE, n = 0) {
+  # Read Excel file
+  df <- readxl::read_excel(path, sheet = sheet, col_names = col_names)
+  df <- as.data.frame(df)  
+  # Extract column types
+  types <- purrr::map_chr(df, typeof)
+  type_df <- data.frame(
+                Column = names(df), 
+                Type = types,
+                stringsAsFactors = FALSE
+                )
+
+  ft = pretty_df(type_df,glue("XLSX Column Types:{path}"))
+ 
+  return(list(df=df,ft=ft))
+}
+
+
+
+
+# ---- Pretty Excel Reader with Type Summary and Preview ----
+# ---- Pretty Excel Reader with Type Summary and Preview ----
+# Requires: readxl, flextable, purrr
+
+pretty_ggplot <- \(plot, title = "ggplot Summary") {
+  if (!inherits(plot, "gg")) stop("Input must be a ggplot object.")
+
+  # Extract key components
+  plot_data <- tryCatch(plot$data, error = function(e) NULL)
+  geoms <- sapply(plot$layers, function(layer) class(layer$geom)[1])
+  mappings <- plot$mapping
+  
+  # Pull out global aesthetics as strings
+  global_aes  <- names(mappings)
+  global_vals <- sapply(mappings, function(x) rlang::expr_text(x))
+
+  # Additional metadata
+  p_title <- plot$labels$title %||% title %||% ""
+  x_lab   <- plot$labels$x %||% ""
+  y_lab   <- plot$labels$y %||% ""
+  colour_lab <- plot$labels$colour %||% plot$labels$color %||% ""
+
+  # Build a metadata data frame
+  df <- data.frame(
+    Component = c(
+                "Title",
+                "X Axis",
+                "Y Axis", 
+                "Colour Legend",
+                "Geoms",
+                global_aes),
+    Value     = c(
+                p_title, 
+                x_lab,    
+                y_lab,    
+                colour_lab,
+                paste(geoms , collapse = ","),
+                global_vals),
+    stringsAsFactors = FALSE
+  )
+
+  ft = pretty_df(df)
+  return(ft)
+  }
+
+ 
+# ---- Pretty glm model with Type Summary and Preview -------
+# ---- Pretty glm model with Type Summary and Preview -------
+# Requires: readxl, flextable, purrr
+
+pretty_glm <- function(model) {
+  if (!inherits(model, "glm")) {
+    stop("pretty_glm() expects a glm object.")
+    return(NULL)
+  }
+
+  tryCatch({
+    Metric <- c(
+      "Formula",
+      "AIC",
+      "Null deviance",
+      "Residual deviance",
+      "Component names",
+      "Model class"
+    )
+
+    Value <- c(
+      deparse(formula(model)),
+      AIC(model),
+      model$null.deviance,
+      model$deviance,
+      paste(names(model), collapse = ", "),
+      paste(class(model), collapse = ", ")
+    )
+
+    df <- data.frame(Metric, Value, stringsAsFactors = FALSE)
+    return (df)
+    #pretty_df(df, title = "Fit Statistics")
+    
+  },
+  error = function(e) {
+    cat("Error in pretty_glm():", conditionMessage(e), "\n")
+    return(NULL)
+  })
+}
+
+
+
+pretty_split_df <- function(df,
+                            cols = 6,
+                            title = NULL,
+                            fontsize = 10,
+                            n = 5) {
+  if (!is.data.frame(df)) {
+    stop(cat("\\textit{Object is not a data frame:}", deparse(df)))
+  }
+
+  title <- if (is.null(title)) deparse(substitute(df)) else title
+  df_show <- if (n > 0) head(df, n) else if (n < 0) tail(df, abs(n)) else df
+  col_groups <- split(names(df_show), ceiling(seq_along(df_show) / cols))
+
+  # Return a named list of flextables created by pretty_df
+  ft_list <- lapply(seq_along(col_groups), function(i) {
+    subdf <- df_show[, col_groups[[i]], drop = FALSE]
+    pretty_df(
+      subdf,
+      title = paste0(title, " (", i, ")"),
+      fontsize = fontsize,
+      n = n
+    )
+  })
+
+  names(ft_list) <- paste0(
+    title,
+    " (",
+    seq_along(ft_list),
+    ")"
+  )
+
+  return(ft_list)
+}
+
+
+
+
+```
+
+
+
+```{r wsb-global-model-utils}
+# --- Model Evaluation Utilities ---
+
+model_boolean_eval <- function(model, pred_class, actual_class, train_data, threshold = 0.5) {
+  pvals <- broom::tidy(model)$p.value
+  sig_all <- all(pvals < 0.05)
+
+  test_acc <- mean(pred_class == actual_class)
+  base_acc <- max(prop.table(table(actual_class)))
+  better_than_random <- test_acc > 0.5
+
+  better_than_baseline_mild     <- (test_acc - base_acc) >= 0.01
+  better_than_baseline_moderate <- (test_acc - base_acc) >= 0.015
+  better_than_baseline_strong   <- (test_acc - base_acc) >= 0.02
+  real_world_gain               <- (test_acc - base_acc) >= 0.05
+
+  train_probs <- predict(model, newdata = train_data, type = "response")
+  train_class <- ifelse(train_probs > threshold, 1, 0)
+  train_acc <- mean(train_class == train_data$DEATH)
+  well_generalised <- abs(train_acc - test_acc) < 0.05
+
+  list(
+    sig_all = sig_all,
+    test_acc = test_acc,
+    base_acc = base_acc,
+    better_than_random = better_than_random,
+    better_than_mild = better_than_baseline_mild,
+    better_than_moderate = better_than_baseline_moderate,
+    better_than_strong = better_than_baseline_strong,
+    well_generalised = well_generalised,
+    real_world_gain = real_world_gain
+  )
+}
+
+summarise_boolean_eval <- function(eval_list) {
+  data.frame(
+    Question = c(
+      "Statistically significant?",
+      "Better than random?",
+      "Better than majority guess? (≥ 0.01)",
+      "Better than majority guess? (≥ 0.015)",
+      "Better than majority guess? (≥ 0.02)",
+      "Well-generalised?",
+      "Real-world useful?"
+    ),
+    Result = unlist(c(
+      eval_list$sig_all,
+      eval_list$better_than_random,
+      eval_list$better_than_mild,
+      eval_list$better_than_moderate,
+      eval_list$better_than_strong,
+      eval_list$well_generalised,
+      eval_list$real_world_gain
+    )),
+    Justification = c(
+      "all(pvals < 0.05)",
+      "test_acc > 0.5",
+      "(test_acc - base_acc) >= 0.01",
+      "(test_acc - base_acc) >= 0.015",
+      "(test_acc - base_acc) >= 0.02",
+      "abs(train_acc - test_acc) < 0.05",
+      "(test_acc - base_acc) >= 0.05"
+    ),
+    stringsAsFactors = FALSE
+  )
+}
+
+
+#Convert probabilities to labelled factor predictions
+predict_classes <- function(probs, threshold = 0.5) {
+  factor(ifelse(probs > threshold, 1, 0), levels = c(0, 1), labels = c("LIVE", "DEAD"))
+}
+
+# 2. Create a labelled confusion matrix from predicted and actual class labels
+make_conf_matrix <- function(pred_class, actual_class) {
+  table(
+    Predicted = factor(pred_class, levels = c("LIVE", "DEAD")),
+    Actual    = factor(actual_class, levels = c("LIVE", "DEAD"))
+  )
+}
+
+# 3. Compute performance metrics from a 2x2 labelled confusion matrix
+# Returns: misclassification, accuracy, precision, recall, F1
+eval_conf_matrix <- function(cmtx) {
+  tp <- cmtx["DEAD", "DEAD"]
+  tn <- cmtx["LIVE", "LIVE"]
+  fp <- cmtx["DEAD", "LIVE"]
+  fn <- cmtx["LIVE", "DEAD"]
+  total <- sum(cmtx)
+
+  if (total == 0 || any(is.na(c(tp, tn, fp, fn)))) return(rep(NA, 5))
+
+  accuracy  <- (tp + tn) / total
+  precision <- if ((tp + fp) > 0) tp / (tp + fp) else NA
+  recall    <- if ((tp + fn) > 0) tp / (tp + fn) else NA
+  f1        <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0)
+                 2 * precision * recall / (precision + recall) else NA
+  misclass  <- 1 - accuracy
+
+  c(misclass, accuracy, precision, recall, f1)
+}
+
+# 4. Convert a vector of named metrics into a summary data frame
+summarise_metrics <- function(metrics_vec) {
+  metric_names <- c("Misclassification Rate", "Accuracy", "Precision (DEAD)", "Recall (DEAD)", "F1 Score (DEAD)")
+  data.frame(Metric = metric_names, Value = round(metrics_vec, 3), stringsAsFactors = FALSE)
+}
+```
+
+
+
+
+```{r load-and-test-split, results='hide'}
+# Load heart and colour datasets from zip
+
+# Set base directory
+# Assign named paths based on filename match
+# load the dataframes via pretty_read_csv 
+# preview structure
+unzip_dir <- "../data/unzipped"
+zip_path  <- "../data/data_assignment_2.zip"
+csv_files <- unzip(zip_path, list = TRUE)$Name  # Extract filenames from the zip
+target_paths <- file.path(unzip_dir, csv_files)
+
+idx_color   <- grep("color", csv_files)
+idx_heart   <- grep("heart", csv_files)
+path_colour <- target_paths[idx_color]
+path_heart  <- target_paths[idx_heart]
+ 
+heart_list  <- pretty_read_csv(path_heart, col_names = TRUE)
+colour_list <- pretty_read_csv(path_colour, col_names = TRUE)
+   
+heart_df = heart_list$df
+heart_ft = heart_list$ft 
+                                                         
+colour_df = colour_list$df
+colour_ft = colour_list$ft 
+
+
+foo <- pretty_split_df(heart_df)
+
+render_flextables <- function(ft_list) {
+  for (ft in foo) {
+    invisible(print(knitr::knit_print(ft)))
+    }
+  }
+
+render_flextables(foo)
+```
+
+
+```{r child="../doc/WSB-heart-analysis-v10.Rmd" , cache = FALSE}
+```
+
+```{r child="../doc/WSB-colour-analysis-v6.Rmd", cache = FALSE}
+```
+                                                                         
+ 
+   
+ 
