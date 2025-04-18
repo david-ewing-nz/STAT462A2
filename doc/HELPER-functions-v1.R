@@ -457,6 +457,84 @@ pretty_split_df <- function(df, cols = 6, title = NULL, fontsize = 10, n = 5) {
   names(ft_list) <- paste0(title, " (", seq_along(ft_list), ")")
   ft_list
 }
+
+
+pretty_model_comparison <- function(model_results) {
+  stopifnot(is.list(model_results))
+  
+  summary_list <- lapply(names(model_results), function(name) {
+    result <- model_results[[name]]
+    actual <- result$actual
+    predicted <- result$predicted
+    
+    # Confusion matrix
+    cm <- table(Predicted = predicted, Actual = actual)
+    
+    TP <- cm["DEAD", "DEAD"]
+    TN <- cm["LIVE", "LIVE"]
+    FP <- cm["DEAD", "LIVE"]
+    FN <- cm["LIVE", "DEAD"]
+    
+    accuracy  <- (TP + TN) / sum(cm)
+    precision <- TP / (TP + FP)
+    recall    <- TP / (TP + FN)
+    f1        <- 2 * precision * recall / (precision + recall)
+    
+    data.frame(
+      Model     = name,
+      Accuracy  = round(accuracy, 3),
+      Precision = round(precision, 3),
+      Recall    = round(recall, 3),
+      F1        = round(f1, 3),
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  summary_df <- do.call(rbind, summary_list)
+  pretty_df(summary_df, title = "Model Comparison Summary")
+}
+
+
+
+pretty_model_comparison <- function(model_list) {
+  stopifnot(is.list(model_list))
+  
+  # Storage
+  comparison <- data.frame()
+  
+  for (name in names(model_list)) {
+    entry <- model_list[[name]]
+    
+    # Required elements in each entry
+    actual <- entry$actual
+    predicted <- entry$predicted
+    
+    # Generate confusion matrix
+    cm <- make_conf_matrix(predicted, actual)
+    metrics <- eval_conf_matrix(cm)
+    
+    comparison <- rbind(comparison, data.frame(
+      Model        = name,
+      Accuracy     = round(metrics[2], 3),
+      Precision    = round(metrics[3], 3),
+      Recall       = round(metrics[4], 3),
+      F1_Score     = round(metrics[5], 3),
+      MisclassRate = round(metrics[1], 3)
+    ))
+  }
+  
+  # Reorder columns to preference
+  comparison <- comparison[, c("Model", "Accuracy", "Precision", "Recall", "F1_Score", "MisclassRate")]
+  
+  # Return as pretty flextable
+  pretty_df(comparison, title = "Model Performance Comparison")
+}
+
+
+
+
+
+
 ```
 
 

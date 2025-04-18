@@ -16,7 +16,7 @@ output:
       in_header: ../doc/fonts.tex
 fontsize: 11pt
 geometry: margin=1in
-
+---
 output:
   pdf_document:
     latex_engine: xelatex
@@ -24,19 +24,10 @@ output:
     
 mainfont: Arial
 fontsize: 10pt
----
-
-```{r file-info, echo=FALSE, results='asis'}
-
-cat("**R Markdown file name:**", knitr::current_input(), "\n\n")
-cat("**R Markdown file name:**", rmarkdown::metadata$file, "\n")
-cat("**Rendered on:**", format(Sys.time(), "%Y.%m.%d %H:%M:00"), "\n")
-```
 
 ```{r setup, include=FALSE}
 # This chunk was set up with the aid of ChatGPT.
 # The intent is to load updates quietly thus not
-
 # spending undue time with the logistics of getting 
 # setup. 
 
@@ -74,15 +65,13 @@ required_packages <- c(
   "GGally",        # Pair plots
   "ggplot2",       # Core plotting
   "glmnet",        # Regularised regression
-  "glue",          # glue
-  "patchwork",      # ✅ for ggplot grid layouts
+  "glue",           # glue
   "rsample",         # initial_split
   "kableExtra",    # Table formatting
   "knitr",         # Inline rendering
   "MASS",          # LDA/QDA and logistic
   "officer",       # Word/PDF table styling (used by flextable)
   "skimr",         # Data summaries
-  "tree",
   "tidyverse",     # Core data science packages
   "tibble"         # Modern data frames
 )
@@ -493,7 +482,6 @@ summarise_metrics <- function(metrics_vec) {
 
 
 
-
 ```{r load-and-test-split, results='hide'}
 # Load heart and colour datasets from zip
 
@@ -535,7 +523,230 @@ render_flextables(foo)
 
 
 
-```{r  wsb-step-01}
+```{r child="../doc/WSB-heart-analysis-v4.Rmd" , cache = FALSE}
+```
+
+#```{r child="../doc/heart-analysis.Rmd" , cache = FALSE}
+#```
+
+
+
+## A(a) Train-Test Split
+
+## A(b) Exploratory Visualisation
+
+## A(c) Logistic Regression
+
+- (i) Misclassification Rate  
+- (ii) Confusion Matrix  
+- (iii) Decision Boundary Visualisation
+
+## A(d) Sensitivity-Prioritised Model
+
+## A(e) Comparison with Discriminant Analysis
+
+## A(f) Feature Importance and Risk Factors
+
+
+
+
+# Question B: Colour Classification (`colour_df_train.csv`)
+
+`
+
+
+```{r child="../doc/WSB-colour-analysis-v6.Rmd", cache = FALSE}
+```
+#```{r child="../doc/colour-analysis.Rmd", cache = FALSE}
+#```
+
+## B(a) Number of Classes
+
+## B(b) QDA Classification and Visualisation
+
+## B(c) Classification of Colour (200, 0, 200)
+
+## B(d) kNN Comparison (Optional)
+
+
+
+
+# Discussion
+
+This section synthesises findings from both classification tasks, comparing model performance and interpretability.
+
+# Conclusion
+
+Summary of key results, limitations, and future recommendations.
+
+
+
+
+
+
+# ---------------------------
+# Combined WBS Child Content
+# ---------------------------
+
+
+```{r setup-heart, include=FALSE}
+
+library(dplyr)
+library(MASS)
+knitr::opts_chunk$set(echo = TRUE)
+conflicted::conflicts_prefer(dplyr::filter)
+conflicted::conflicts_prefer(dplyr::lag)
+conflicted::conflicts_prefer(dplyr::select)
+```
+
+## WBS for Heart Analysis
+```{r functions}
+confusion_mtx <- function(conf_mtx) {
+ 
+
+
+#   percent matrix safely
+if (sum(mat) == 0) {
+  mat_percent <- matrix(0, nrow = nrow(mat), ncol = ncol(mat))
+} else {
+  mat_percent <- round(100 * mat / sum(mat), 1)
+}
+dimnames(mat_percent) <- dimnames(hp_cmtx)  #  row/col names
+# Step 2: Convert to character matrix with %
+matp_text <- matrix(paste0(mat_percent, "%"), 
+                       nrow = nrow(mat_percent), 
+                       dimnames = dimnames(mat_percent))
+cat("mat_percent = ",mat_percent,"\n")
+
+#   3×3 data frame
+labels <- rownames(mat_text)
+conf_3x3 <- matrix("", nrow = 3, ncol = 3)
+
+# Insert percentage matrix into [2:3, 2:3]
+conf_3x3[2:3, 2:3] <- matp_text
+
+# Add axis labels
+conf_3x3[1, 2:3] <- paste0("Actual: ", labels)
+conf_3x3[2:3, 1] <- paste0("Predicted: ", labels)
+
+# Convert to data frame
+hp_cmtx_df <- as.data.frame(conf_3x3)
+colnames(hp_cmtx_df) <- NULL
+rownames(hp_cmtx_df) <- NULL
+
+}
+
+
+
+
+
+```
+
+
+```{r wsb-global-model-utils}
+# --- Model Evaluation Utilities ---
+
+model_boolean_eval <- function(model, pred_class, actual_class, train_data, threshold = 0.5) {
+  pvals <- broom::tidy(model)$p.value
+  sig_all <- all(pvals < 0.05)
+
+  test_acc <- mean(pred_class == actual_class)
+  base_acc <- max(prop.table(table(actual_class)))
+  better_than_random <- test_acc > 0.5
+
+  better_than_baseline_mild     <- (test_acc - base_acc) >= 0.01
+  better_than_baseline_moderate <- (test_acc - base_acc) >= 0.015
+  better_than_baseline_strong   <- (test_acc - base_acc) >= 0.02
+  real_world_gain               <- (test_acc - base_acc) >= 0.05
+
+  train_probs <- predict(model, newdata = train_data, type = "response")
+  train_class <- ifelse(train_probs > threshold, 1, 0)
+  train_acc <- mean(train_class == train_data$DEATH)
+  well_generalised <- abs(train_acc - test_acc) < 0.05
+
+  list(
+    sig_all = sig_all,
+    test_acc = test_acc,
+    base_acc = base_acc,
+    better_than_random = better_than_random,
+    better_than_mild = better_than_baseline_mild,
+    better_than_moderate = better_than_baseline_moderate,
+    better_than_strong = better_than_baseline_strong,
+    well_generalised = well_generalised,
+    real_world_gain = real_world_gain
+  )
+}
+
+summarise_boolean_eval <- function(eval_list) {
+  data.frame(
+    Question = c(
+      "Statistically significant?",
+      "Better than random?",
+      "Better than majority guess? (≥ 0.01)",
+      "Better than majority guess? (≥ 0.015)",
+      "Better than majority guess? (≥ 0.02)",
+      "Well-generalised?",
+      "Real-world useful?"
+    ),
+    Result = unlist(c(
+      eval_list$sig_all,
+      eval_list$better_than_random,
+      eval_list$better_than_mild,
+      eval_list$better_than_moderate,
+      eval_list$better_than_strong,
+      eval_list$well_generalised,
+      eval_list$real_world_gain
+    )),
+    Justification = c(
+      "all(pvals < 0.05)",
+      "test_acc > 0.5",
+      "(test_acc - base_acc) >= 0.01",
+      "(test_acc - base_acc) >= 0.015",
+      "(test_acc - base_acc) >= 0.02",
+      "abs(train_acc - test_acc) < 0.05",
+      "(test_acc - base_acc) >= 0.05"
+    ),
+    stringsAsFactors = FALSE
+  )
+}
+
+predict_classes <- function(probs, threshold = 0.5) {
+  factor(ifelse(probs > threshold, 1, 0), levels = c(0, 1), labels = c("LIVE", "DEAD"))
+}
+
+make_conf_matrix <- function(pred_class, actual_class) {
+  table(
+    Predicted = factor(pred_class, levels = c("LIVE", "DEAD")),
+    Actual    = factor(actual_class, levels = c("LIVE", "DEAD"))
+  )
+}
+
+eval_conf_matrix <- function(cmtx) {
+  tp <- cmtx["DEAD", "DEAD"]
+  tn <- cmtx["LIVE", "LIVE"]
+  fp <- cmtx["DEAD", "LIVE"]
+  fn <- cmtx["LIVE", "DEAD"]
+  total <- sum(cmtx)
+
+  if (total == 0 || any(is.na(c(tp, tn, fp, fn)))) return(rep(NA, 5))
+
+  accuracy  <- (tp + tn) / total
+  precision <- if ((tp + fp) > 0) tp / (tp + fp) else NA
+  recall    <- if ((tp + fn) > 0) tp / (tp + fn) else NA
+  f1        <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0)
+                 2 * precision * recall / (precision + recall) else NA
+  misclass  <- 1 - accuracy
+
+  c(misclass, accuracy, precision, recall, f1)
+}
+
+summarise_metrics <- function(metrics_vec) {
+  metric_names <- c("Misclassification Rate", "Accuracy", "Precision (DEAD)", "Recall (DEAD)", "F1 Score (DEAD)")
+  data.frame(Metric = metric_names, Value = round(metrics_vec, 3), stringsAsFactors = FALSE)
+}
+```
+### Split the dataset into a training set (80%) and a test set (20%)
+```{r wsb-step-01}
 cat("### Split the dataset into a training set (80%) and a test set (20%)
 ")
 
@@ -569,23 +780,26 @@ h_actual_class  <- h_test$DEATH        # true observed values
 hp_actual_class <- hp_test$DEATH
 
 ```
-### Visualise the relationship between DEATH, GLUCOSE and SYSBP
 
-<!-- Inserted from WBS: wsb-step-02 -->
+### Visualise the relationship between DEATH, GLUCOSE and SYSBP
 ```{r wsb-step-02}
 cat("### Visualise the relationship between DEATH, GLUCOSE and SYSBP\n")
 
-ggp_relationship <- ggplot(hp_clean, aes(x = GLUCOSE, y = SYSBP, colour = DEATH)) +
+hggp = ggplot(hp_clean, aes(x = GLUCOSE, y = SYSBP, colour = DEATH)) +
   geom_point(alpha = 0.6) +
   labs(title = "DEATH vs GLUCOSE and SYSBP", x = "GLUCOSE", y = "SYSBP")
+hggp
+
+
+### Visualise distributions and log/linear axis combinations
 
 # 1. Distribution of SYSBP
-ggp_sysbp <- ggplot(hp_test, aes(x = SYSBP)) +
+p_sysbp <- ggplot(hp_test, aes(x = SYSBP)) +
   geom_histogram(bins = 40, fill = "steelblue", colour = "white") +
   labs(title = "Distribution of SYSBP", x = "SYSBP", y = "Count")
 
 # 2. Distribution of GLUCOSE
-ggp_glucose <- ggplot(hp_test, aes(x = GLUCOSE)) +
+p_glucose <- ggplot(hp_test, aes(x = GLUCOSE)) +
   geom_histogram(bins = 40, fill = "darkorange", colour = "white") +
   labs(title = "Distribution of GLUCOSE", x = "GLUCOSE", y = "Count")
 
@@ -603,35 +817,23 @@ p_log_log <- base + scale_x_log10() + scale_y_log10() + ggtitle("Log X / Log Y")
 p_combined <- (p_lin_lin | p_log_lin) / (p_lin_log | p_log_log)
 
 # Output all plots
-print(ggp_relationship)
-print(ggp_sysbp)
-print(ggp_glucose)
+print(p_sysbp)
+print(p_glucose)
 print(p_combined)
 
-pretty_ggplot(ggp_relationship, title = "Relationship: DEATH vs GLUCOSE and SYSBP")
-pretty_ggplot(ggp_sysbp, title = "Distribution of SYSBP")
-pretty_ggplot(ggp_glucose, title = "Distribution of GLUCOSE")
-pretty_ggplot(p_lin_lin, title = "Linear X / Linear Y")
-pretty_ggplot(p_log_lin, title = "Log X / Linear Y")
-pretty_ggplot(p_lin_log, title = "Linear X / Log Y")
-pretty_ggplot(p_log_log, title = "Log X / Log Y")
-pretty_ggplot(p_combined, title = "Log/Linear Scale Comparison Grid")
 
+
+
+pretty_ggplot(hggp, "DEATH, GLUCOSE, and SYSBP" )
 ```
 
 ### Form an initial hypothesis of what to look for when doing the classification
-
-
-<!-- Inserted from WBS: wsb-step-03 -->
-```{r  wsb-step-03}
+```{r wsb-step-03}
 print("We hypothesise that high GLUCOSE and high SYSBP are associated with higher DEATH risk.")
 ```
 
 ### Fit a logistic regression model on the training set
-
-
-<!-- Inserted from WBS: wsb-step-04 -->
-```{r  wsb-step-04}
+```{r wsb-step-04}
 hp_glm_metrx <- glm(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train, family = "binomial")
 pretty_glm(hp_glm_metrx)
 ```
@@ -645,181 +847,229 @@ pretty_glm(hp_glm_metrx)
 ### Compute the misclassification rate on the test set
 
 
-```{r wsb-step-05.1}
-
-```
-
- 
-
-
-### Compute the confusion matrix on the test set
-```{r wsb-step-06.1}
+```{r wsb-step-051}
 cat("### Logistic Regression Evaluation (Threshold = 0.50)\n")
 
-
-
+# Generate predicted probabilities
 hp_pred_probs <- predict(hp_glm_metrx, newdata = hp_test, type = "response")
+
+# Generate predicted class labels
 hp_pred_class <- predict_classes(hp_pred_probs, threshold = 0.5)
+hp_pred_class <- factor(hp_pred_class, levels = c("LIVE", "DEAD"))
+
+# Define actual class labels with fixed levels
 hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
 
+# Build confusion matrix
 hp_cmtx_test <- make_conf_matrix(hp_pred_class, hp_actual_class)
+
+# Evaluate metrics
 hp_metrics <- eval_conf_matrix(hp_cmtx_test)
+
+# Summarise into a printable data frame
 hp_mtrx_df <- summarise_metrics(hp_metrics)
 
+# Display confusion matrix
 hp_cmtx_df <- as.data.frame.matrix(hp_cmtx_test)
 hp_cmtx_df <- cbind(Predicted = rownames(hp_cmtx_df), hp_cmtx_df)
 rownames(hp_cmtx_df) <- NULL
 
 print(pretty_df(hp_cmtx_df, title = "Confusion Matrix (Threshold = 0.50)"))
 print(pretty_df(hp_mtrx_df, title = "Logistic Regression Performance (Threshold = 0.50)"))
+
+# Updated: compute evaluation and show summaries
+eval_results <- tryCatch({
+  model_boolean_eval(hp_glm_metrx, hp_pred_class, hp_actual_class, hp_train)
+}, error = function(e) {
+  message("⚠️ model_boolean_eval() failed: ", conditionMessage(e))
+  return(list(boolean_eval = NULL, metrics_eval = NULL))
+})
+
+if (is.data.frame(eval_results$boolean_eval)) {
+  print(pretty_df(eval_results$boolean_eval, title = "Model Evaluation - Qualitative Booleans"))
+} else {
+  cat("⚠️ Skipping qualitative evaluation — not a data frame.\n")
+}
+
+if (is.data.frame(eval_results$metrics_eval)) {
+  print(pretty_df(eval_results$metrics_eval, title = "Model Evaluation - Quantitative Metrics"))
+} else {
+  cat("⚠️ Skipping quantitative evaluation — not a data frame.\n")
+}
 ```
 
 
-<!-- Inserted from WBS: wsb-step-07 -->
-```{r  wsb-step-07}
 
-ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP, colour = hp_pred_class)) +
+ 
+```
+
+### Compute the confusion matrix on the test set
+```{r wsb-step-06}
+hp_cmtx_test = table(Predicted = hp_pred_class, Actual = hp_actual_class)
+```
+
+### Visualise decision boundaries in the GLUCOSE–SYSBP plane
+```{r wsb-step-07}
+library(ggplot2)
+ggplot(h_test, aes(x = GLUCOSE, y = SYSBP, colour = as.factor(h_pred_class))) +
   geom_point(alpha = 0.5) +
-  labs(
-    title = "Logistic Regression Decision Boundary (approx)",
-    colour = "Predicted"
-  )
-
+  labs(title = "Logistic Regression Decision Boundary (approx)", colour = "Predicted")
 ```
 
 ### Comment on the goodness of fit
 
 ### Supporting numeric metrics for evaluation criteria
+```{r wsb-step-8.0, include=FALSE}
+cat("### Supporting numeric metrics for evaluation criteria\n")
+
+# Format p-values to avoid misleading zeros
+h_min_pval  <- format.pval(min(h_pvals), digits = 3, eps = .Machine$double.eps)
+h_mean_pval <- format.pval(mean(h_pvals), digits = 3, eps = .Machine$double.eps)
+
+# Other metrics
+h_delta_acc      <- h_test_acc - h_base_acc
+h_train_test_gap <- abs(h_train_acc - h_test_acc)
+
+# Construct table
+hp_model_eval_metrics <- data.frame(
+  Metric = c(
+    "Train Accuracy",
+    "Test Accuracy",
+    "Baseline Accuracy",
+    "Accuracy Gain over Baseline",
+    "Train/Test Gap",
+    "Minimum p-value",
+    "Mean p-value"
+  ),
+  Value = c(
+    round(h_train_acc, 5),
+    round(h_test_acc, 5),
+    round(h_base_acc, 5),
+    round(h_test_acc - h_base_acc, 5),
+    round(abs(h_train_acc - h_test_acc), 5),
+    h_min_pval,
+    h_mean_pval
+  ),
+  Variable = c(
+    "h_train_acc",
+    "h_test_acc",
+    "h_base_acc",
+    "h_test_acc - h_base_acc",
+    "abs(h_train_acc - h_test_acc)",
+    "h_min_pval",
+    "h_mean_pval"
+  ),
+  stringsAsFactors = FALSE
+)
+```
 
 
-<!-- Inserted from WBS: wsb-step-09 -->
-```{r  wsb-step-09}
+```{r wsb-step-8.01}
+#print(pretty_df(hp_model_eval_metrics,"foo"))
+pretty_df(hp_model_eval_metrics,"FOO")
+
+```
+
+```{r wsb-step-08.1}
+print("The logistic regression model shows significant predictors, but fit is moderate. Improvements may come from non-linear methods.")
+```
+### Evaluate model performance: generate boolean summary table
+### Evaluate model performance: generate boolean summary table
+```{r wsb-step-08.2, include=FALSE}
+cat("### Evaluate model performance: generate boolean summary table\n")
+
+# Step 1: Compute result variables
+
+
+ bar <- \(pvals, test_acc, base_acc, train_acc) {
+      foo <- list ( 
+      sig_all                       <- all(pvals < 0.05),
+      better_than_random            <- test_acc > 0.5,
+      better_than_baseline_mild     <- (test_acc - base_acc) >= 0.01,
+      better_than_baseline_moderate <-(test_acc - base_acc) >= 0.015,
+      better_than_baseline_strong   <-(test_acc - base_acc) >= 0.02,
+      well_generalised              <-abs(train_acc - test_acc) < 0.05,
+      real_world_gain               <-(test_acc - base_acc) >= 0.05
+      )
+  }
+  
+x_glm_metrx <- glm(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train, family = "binomial")  
+  
+  print(length(x_glm_metrx))
+ 
+ xpred_probs <- predict(x_glm_metrx, newdata = hp_test, type = "response") #
+
+
+ xpred_class <- predict_classes(xpred_probs, threshold = 0.5)
+
+print(length(xpred_class))
+print(length(xpred_probs))
+
+ xpvals      <- broom::tidy(hp_glm_metrx)$p.valuue
+ 
+ if (length(xpred_class) != length(h_actual_class)) {
+  stop("Length mismatch: predicted = ", length(xpred_class), 
+       ", actual = ", length(h_actual_class))
+       
+}
+
+print(length(h_actual_class))
+print(length(xpred_class))
+
+xtest_acc  <- mean(xpred_class == h_actual_class)
+print(xtest_acc)
+
+xbase_acc  <- max(prop.table(table(h_actual_class)))
+
+xtrain_acc <- mean(h_train_class == h_train$DEATH) 
+
+xxx <- bar( xpvals, xtest_acc, xbase_acc, xtrain_acc)
+ 
+ 
+```
+
+
+```{r wsb-step-08.3, }
+#print(pretty_df(hp_model_eval))
+pretty_df(hp_model_eval)
+```
+
+### Modify threshold: classify as 'risky' if risk > 10%
+```{r wsb-step-09}
 hp_pred_class_10 <- ifelse(hp_pred_probs > 0.1, 1, 0)
 hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE", "DEAD"))
 ```
 
 ### Recompute misclassification, confusion, and visualisation for 10% threshold
 # Confusion Matrix (Threshold = 0.10)
-
-
-<!-- Inserted from WBS: wsb-step-10 -->
-```{r  wsb-step-10}
-#hp_misclass_rate_10 <- mean(hp_pred_class_10 != hp_actual_class)
-#hp_cmtx_10 = table(Predicted = h_pred_class_10, Actual = h_actual_class)
+```{r wsb-step-10}
+hp_misclass_rate_10 <- mean(hp_pred_class_10 != hp_actual_class)
+h_cmtx_10 = table(Predicted = h_pred_class_10, Actual = h_actual_class)
 ```
 
 ### Compare logistic regression and discriminant analysis
-```{r wsb-step-10.1}
-cat("### Logistic Regression Evaluation (Threshold = 0.10)\n")
+```{r wsb-step-11}
+# QDA Model 
 
-hp_pred_probs <- predict(hp_glm_metrx, newdata = hp_test, type = "response")
-hp_pred_class_10 <- predict_classes(hp_pred_probs, threshold = 0.10)
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
-
-hp_cmtx_test_10 <- make_conf_matrix(hp_pred_class_10, hp_actual_class)
-hp_metrics_10 <- eval_conf_matrix(hp_cmtx_test_10)
-hp_mtrx_df_10 <- summarise_metrics(hp_metrics_10)
-
-hp_cmtx_df_10 <- as.data.frame.matrix(hp_cmtx_test_10)
-hp_cmtx_df_10 <- cbind(Predicted = rownames(hp_cmtx_df_10), hp_cmtx_df_10)
-rownames(hp_cmtx_df_10) <- NULL
-
-print(pretty_df(hp_cmtx_df_10, title = "Confusion Matrix (Threshold = 0.10)"))
-print(pretty_df(hp_mtrx_df_10, title = "Logistic Regression Performance (Threshold = 0.10)"))
+library(MASS)
+h_qda_model <- qda(DEATH ~ GLUCOSE + SYSBP + AGE, data = h_train)
+h_qda_pred <- predict(h_qda_model, newdata = h_test)$class
+mean(h_qda_pred != h_actual_class)
+h_cmtx_qda = table(Predicted = h_qda_pred, Actual = h_actual_class)
 ```
-
-
-<!-- Inserted from WBS: wsb-step-11 -->
-### QDA Evaluation
-<!-- Inserted from WBS: wsb-step-11.1 -->
-```{r wsb-step-11.1}
-cat("### QDA Evaluation\n")
-
-# Build QDA model using labeled data
-hp_qda_model <- qda(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train)
-
-# Predict posterior probabilities and classes
-qda_output <- predict(hp_qda_model, newdata = hp_test)
-hp_qda_pred_probs <- qda_output$posterior[, "DEAD"]
-hp_qda_pred_class <- predict_classes(hp_qda_pred_probs, threshold = 0.5)
-
-# Define actual classes
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
-
-# Confusion matrix and metrics
-hp_cmtx_qda <- make_conf_matrix(hp_qda_pred_class, hp_actual_class)
-hp_metrics_qda <- eval_conf_matrix(hp_cmtx_qda)
-hp_mtrx_df_qda <- summarise_metrics(hp_metrics_qda)
-
-# Format confusion matrix for display
-hp_cmtx_df_qda <- as.data.frame.matrix(hp_cmtx_qda)
-hp_cmtx_df_qda <- cbind(Predicted = rownames(hp_cmtx_df_qda), hp_cmtx_df_qda)
-rownames(hp_cmtx_df_qda) <- NULL
-
-# Print results
-print(pretty_df(hp_cmtx_df_qda, title = "QDA Confusion Matrix"))
-print(pretty_df(hp_mtrx_df_qda, title = "QDA Model Performance"))
-
-```
- 
 
 ### Visualise the decision boundaries of the fitted QDA model in a suitable way
-
-<!-- Inserted from WBS: wsb-step-12 -->
 ```{r wsb-step-12}
 print("Visualise the decision boundaries of the fitted QDA model in a suitable way.")
-
 # A simple visualisation by predicted class
-hp_qda_probs <- predict(hp_qda_model, newdata = hp_test)$posterior[, 2]
-hp_qda_pred_class <- predict_classes(hp_qda_probs, threshold = 0.5)
-
-
-ggp_qda_boundary <- ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP, colour = hp_qda_pred_class)) +
+h_qda_probs <- predict(h_qda_model, newdata = h_test)$posterior[, 2]
+ggplot(h_test, aes(x = GLUCOSE, y = SYSBP, colour = h_qda_pred)) +
   geom_point(alpha = 0.5) +
-  labs(title = "QDA Decision Boundary (approx)", colour = "Predicted")
-
-
-
-print(ggp_qda_boundary)
+  labs(title = "QDA Prediction by GLUCOSE and SYSBP", colour = "Predicted")
 ```
 
 ### Identify strong risk factors and communicate results
 ```{r wsb-step-13}
-cat("### Fit a Tree-Based Model to the Training Set\n")
-
-# ✅ Fit classification tree to hp_train
-hp_tree_model <- tree(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train)
-
-# ✅ Optional: Display summary of the model
-print(summary(hp_tree_model))
-
-# ✅ Optional: Visualise the tree
-plot(hp_tree_model)
-text(hp_tree_model, pretty = 0)
-```
-
-### Tree-Based or Optional Model Evaluation
-```{r wsb-step-13.1}
-cat("### Tree-Based or Optional Model Evaluation\n")
-
-# ✅ Generate predicted class labels from the fitted tree model
-hp_pred_class <- predict(hp_tree_model, newdata = hp_test, type = "class")
-
-# ✅ Define actual class labels for the test set
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
-
-# ✅ Build confusion matrix
-hp_cmtx   <- make_conf_matrix(hp_pred_class, hp_actual_class)
-hp_metrics <- eval_conf_matrix(hp_cmtx)
-hp_mtrx_df <- summarise_metrics(hp_metrics)
-
-# ✅ Format confusion matrix for display
-hp_cmtx_df <- as.data.frame.matrix(hp_cmtx)
-hp_cmtx_df <- cbind(Predicted = rownames(hp_cmtx_df), hp_cmtx_df)
-rownames(hp_cmtx_df) <- NULL
-
-# ✅ Print both confusion matrix and metrics
-print(pretty_df(hp_cmtx_df, title = "Tree-Based Model Confusion Matrix"))
-print(pretty_df(hp_mtrx_df, title = "Tree-Based Model Performance"))
-
+summary(hp_glm_metrx)
+print("GLUCOSE, SYSBP and AGE appear as key risk indicators based on logistic regression coefficients.")
 ```
