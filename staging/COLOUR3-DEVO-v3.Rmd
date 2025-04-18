@@ -31,7 +31,6 @@ cat("**Rendered on:**", format(Sys.time(), "%Y.%m.%d %H:%M:00"), "\n")
 # The intent is to load updates quietly thus not
 # spending undue time with the logistics of getting 
 # setup. 
-setwd(rprojroot::find_root(rprojroot::is_rstudio_project))
 
 #---------------- knitr::opts_chunk ---------------------------
 #---------------- knitr::opts_chunk ---------------------------
@@ -73,6 +72,7 @@ required_packages <- c(
   "knitr",         # Inline rendering
   "MASS",          # LDA/QDA and logistic
   "officer",       # Word/PDF table styling (used by flextable)
+  "rprojroot",
   "skimr",         # Data summaries
   "tree",
   "tidyverse",     # Core data science packages
@@ -94,81 +94,45 @@ if ("conflicted" %in% loadedNamespaces()) {
 }
 
 ```
- 
 
-#---------- THIS IS UNCONDITIONAL IN PARENT ------
-#---------- THIS IS UNCONDITIONAL IN PARENT ------
+
+#---------- THIS IS THE OPPOSITE IN PARENT ------
+#---------- THIS IS THE OPPOSITE IN PARENT ------
 
 ```{r wsb-include-helper, include=FALSE}
+# Detect if output is PDF
+is_PDF <- knitr::is_latex_output()
 
-# REMEMBER _SUBDIR 
 knitr::opts_chunk$set(cache = FALSE)
 
-# Only include helper if NOT running as a child
-is_CHILD <- isTRUE(knitr::opts_knit$get("child"))
-if (!is_CHILD) {
+# Conditionally include helper Rmd
+if (is_PDF) {
+  PROJECT_CODE  <- "STAGING/"
+  PROJECT_PATH  <- trimws(rprojroot::find_root(rprojroot::is_rstudio_project))
+  PROJECT_CODE  <- file.path(PROJECT_PATH, PROJECT_CODE)
 
-  # Try to get current Rmd file path
-  this_file <- knitr::current_input()
-  if (is.null(this_file) && rstudioapi::isAvailable()) {
-    this_file <- rstudioapi::getSourceEditorContext()$path
-  }
+  HELPER_PATH   <- "HELPER4.Rmd"
+  HELPER_PATH   <- file.path(PROJECT_CODE, HELPER_PATH)
 
-  if (!is.null(this_file) && file.exists(this_file)) {
-    project_subdir <- dirname(normalizePath(this_file))
-
-    helper_path <- file.path(project_subdir, "HELPER.R")
-    cat(knitr::knit_child(helper_path, envir = knitr::knit_global()))
-  } else {
-    cat("Unable to detect Rmd path.\n")
-  }
+  cat(knitr::knit_child(HELPER_PATH, envir = knitr::knit_global(), options = list(label = NULL)))
 }
+```
+
+ 
+```{r}
+```
 
 
-
+```{r}
 ```
 
 
 
- 
-
- 
-
-
-
-
-
-
-
-```{r test}
-
-this_file <- knitr::current_input()
-
-# Fallback if knitting doesn't give you the file
-if (is.null(this_file) && rstudioapi::isAvailable()) {
-  this_file <- rstudioapi::getSourceEditorContext()$path
-}
-
-# Only proceed if we now have a valid path
-if (!is.null(this_file) && file.exists(this_file)) {
-  this_path <- normalizePath(this_file)
-  this_dir  <- dirname(this_path)
-  cat("Rmd is in folder:", this_dir)
-} else {
-  cat("Unable to detect Rmd path.\n")
-}
-
-
-
- 
-```
-
-
-```{r wsb-step-03-split}
+```{r  wsb-step-01}
 cat("### Split the dataset into a training set (80%) and a test set (20%)
 ")
 
-# heart_df exists at run time
+# keep original
 
 h_vars <- c("DEATH", "GLUCOSE", "SYSBP", "AGE")
 h_clean <- heart_df |>
@@ -199,8 +163,9 @@ hp_actual_class <- hp_test$DEATH
 
 ```
 ### Visualise the relationship between DEATH, GLUCOSE and SYSBP
- 
-```{r wsb-step-04-visual}
+
+<!-- Inserted from WBS: wsb-step-02 -->
+```{r wsb-step-02}
 cat("### Visualise the relationship between DEATH, GLUCOSE and SYSBP\n")
 
 ggp_relationship <- ggplot(hp_clean, aes(x = GLUCOSE, y = SYSBP, colour = DEATH)) +
@@ -249,30 +214,22 @@ pretty_ggplot(p_combined, title = "Log/Linear Scale Comparison Grid")
 
 ### Form an initial hypothesis of what to look for when doing the classification
 
- ->
-```{r  heart-wsb-step-03}
+
+<!-- Inserted from WBS: wsb-step-03 -->
+```{r  wsb-step-03}
 print("We hypothesise that high GLUCOSE and high SYSBP are associated with higher DEATH risk.")
 ```
 
 ### Fit a logistic regression model on the training set
 
- 
-```{r  heart-wsb-step-04}
-               
-equation_lg <- DEATH ~ GLUCOSE + SYSBP + AGE
-hp_model <- glm(equation_lg, data = hp_train, family = "binomial")
-pretty_glm(hp_model)
 
-
+<!-- Inserted from WBS: wsb-step-04 -->
+```{r  wsb-step-04}
+hp_glm_metrx <- glm(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train, family = "binomial")
+pretty_glm(hp_glm_metrx)
 ```
 
 
-```{r wsb-step-05-model}
-# Fit a logistic regression model on training data
-# Summarize using pretty_glm
- 
-pretty_glm(hp_model)
-```
 
 
 
@@ -280,43 +237,56 @@ pretty_glm(hp_model)
 
 ### Compute the misclassification rate on the test set
 
-```{r wsb-step-06}
-cat("### Compute the misclassification rate on the test set\n")
 
-# Generate predicted probabilities and classes
-hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
+```{r wsb-step-05.1}
+
+```
+
+ 
+
+
+### Compute the confusion matrix on the test set
+```{r wsb-step-06.1}
+cat("### Logistic Regression Evaluation (Threshold = 0.50)\n")
+
+
+
+hp_pred_probs <- predict(hp_glm_metrx, newdata = hp_test, type = "response")
 hp_pred_class <- predict_classes(hp_pred_probs, threshold = 0.5)
-
-# Compute actual class labels
 hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
 
-# Calculate confusion matrix
-hp_cmtx <- make_conf_matrix(hp_pred_class, hp_actual_class)
-
-# Evaluate confusion matrix
-hp_metrics <- eval_conf_matrix(hp_cmtx)
+hp_cmtx_test <- make_conf_matrix(hp_pred_class, hp_actual_class)
+hp_metrics <- eval_conf_matrix(hp_cmtx_test)
 hp_mtrx_df <- summarise_metrics(hp_metrics)
 
-# Convert confusion matrix to printable data frame
-hp_cmtx_df <- as.data.frame.matrix(hp_cmtx)
+hp_cmtx_df <- as.data.frame.matrix(hp_cmtx_test)
 hp_cmtx_df <- cbind(Predicted = rownames(hp_cmtx_df), hp_cmtx_df)
 rownames(hp_cmtx_df) <- NULL
 
-# Print formatted summaries
-print(pretty_df(hp_cmtx_df, title = "Logistic Regression Confusion Matrix (Threshold = 0.5)"))
-print(pretty_df(hp_mtrx_df, title = "Logistic Regression Performance (Threshold = 0.5)"))
+print(pretty_df(hp_cmtx_df, title = "Confusion Matrix (Threshold = 0.50)"))
+print(pretty_df(hp_mtrx_df, title = "Logistic Regression Performance (Threshold = 0.50)"))
 ```
- 
-  
+
+
+<!-- Inserted from WBS: wsb-step-07 -->
+```{r  wsb-step-07}
+
+ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP, colour = hp_pred_class)) +
+  geom_point(alpha = 0.5) +
+  labs(
+    title = "Logistic Regression Decision Boundary (approx)",
+    colour = "Predicted"
+  )
+
+```
+
 ### Comment on the goodness of fit
-```{r  heart-wsb-step-08}
-#refere to hp_mtrx_df 
-```
 
 ### Supporting numeric metrics for evaluation criteria
 
- 
-```{r  heart-wsb-step-09}
+
+<!-- Inserted from WBS: wsb-step-09 -->
+```{r  wsb-step-09}
 hp_pred_class_10 <- ifelse(hp_pred_probs > 0.1, 1, 0)
 hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE", "DEAD"))
 ```
@@ -325,17 +295,17 @@ hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE"
 # Confusion Matrix (Threshold = 0.10)
 
 
- 
-```{r wsb-step-10}
+<!-- Inserted from WBS: wsb-step-10 -->
+```{r  wsb-step-10}
 #hp_misclass_rate_10 <- mean(hp_pred_class_10 != hp_actual_class)
 #hp_cmtx_10 = table(Predicted = h_pred_class_10, Actual = h_actual_class)
 ```
 
 ### Compare logistic regression and discriminant analysis
-```{r heart-wsb-step-10.1}
+```{r wsb-step-10.1}
 cat("### Logistic Regression Evaluation (Threshold = 0.10)\n")
 
-hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
+hp_pred_probs <- predict(hp_glm_metrx, newdata = hp_test, type = "response")
 hp_pred_class_10 <- predict_classes(hp_pred_probs, threshold = 0.10)
 hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
 
@@ -351,21 +321,15 @@ print(pretty_df(hp_cmtx_df_10, title = "Confusion Matrix (Threshold = 0.10)"))
 print(pretty_df(hp_mtrx_df_10, title = "Logistic Regression Performance (Threshold = 0.10)"))
 ```
 
-### QDA Model
- 
-```{r heart-wsb-step-11}
-hp_qda_model <- qda(equation_lg, data = hp_train) 
-```
 
-
- 
+<!-- Inserted from WBS: wsb-step-11 -->
 ### QDA Evaluation
-  a
-```{r heart-wsb-step-11.1}
+<!-- Inserted from WBS: wsb-step-11.1 -->
+```{r wsb-step-11.1}
 cat("### QDA Evaluation\n")
 
 # Build QDA model using labeled data
-hp_qda_model <- qda(equation_lg, data = hp_train)
+hp_qda_model <- qda(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train)
 
 # Predict posterior probabilities and classes
 qda_output <- predict(hp_qda_model, newdata = hp_test)
@@ -393,8 +357,9 @@ print(pretty_df(hp_mtrx_df_qda, title = "QDA Model Performance"))
  
 
 ### Visualise the decision boundaries of the fitted QDA model in a suitable way
- 
-```{r heart-wsb-step-12}
+
+<!-- Inserted from WBS: wsb-step-12 -->
+```{r wsb-step-12}
 print("Visualise the decision boundaries of the fitted QDA model in a suitable way.")
 
 # A simple visualisation by predicted class
@@ -412,73 +377,42 @@ print(ggp_qda_boundary)
 ```
 
 ### Identify strong risk factors and communicate results
-
-
- 
-### Fit a tree-based model to the training set
- 
-```{r heart-wsb-step-13}
+```{r wsb-step-13}
 cat("### Fit a Tree-Based Model to the Training Set\n")
 
-# Fit classification tree to hpl_train
-hp_tree_model <- tree(equation_lg, data = hp_train)
+# ✅ Fit classification tree to hp_train
+hp_tree_model <- tree(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train)
 
-# Optional: Display summary of the model
+# ✅ Optional: Display summary of the model
 print(summary(hp_tree_model))
 
-# Optional: Visualise the tree
+# ✅ Optional: Visualise the tree
 plot(hp_tree_model)
 text(hp_tree_model, pretty = 0)
-
 ```
 
 ### Tree-Based or Optional Model Evaluation
-```{r heart-wsb-step-13.1}
+```{r wsb-step-13.1}
 cat("### Tree-Based or Optional Model Evaluation\n")
 
-# Generate predicted probabilities and classes
-hp_pred_probs <- predict(hp_tree_model, newdata = hp_test, type = "vector")
-hp_pred_class <- predict_classes(hp_pred_probs[, "DEAD"], threshold = 0.5)
+# ✅ Generate predicted class labels from the fitted tree model
+hp_pred_class <- predict(hp_tree_model, newdata = hp_test, type = "class")
+
+# ✅ Define actual class labels for the test set
 hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
 
-# Build confusion matrix
-hp_cmtx <- make_conf_matrix(hp_pred_class, hp_actual_class)
+# ✅ Build confusion matrix
+hp_cmtx   <- make_conf_matrix(hp_pred_class, hp_actual_class)
 hp_metrics <- eval_conf_matrix(hp_cmtx)
 hp_mtrx_df <- summarise_metrics(hp_metrics)
 
-# Format for display
+# ✅ Format confusion matrix for display
 hp_cmtx_df <- as.data.frame.matrix(hp_cmtx)
 hp_cmtx_df <- cbind(Predicted = rownames(hp_cmtx_df), hp_cmtx_df)
 rownames(hp_cmtx_df) <- NULL
 
-# Print both confusion matrix and metrics
+# ✅ Print both confusion matrix and metrics
 print(pretty_df(hp_cmtx_df, title = "Tree-Based Model Confusion Matrix"))
 print(pretty_df(hp_mtrx_df, title = "Tree-Based Model Performance"))
-
-```
-
-```{r heart-wsb-step-14}
-
-pretty_glm(hp_model)
-pretty_qda(hp_qda_model)$equation
-pretty_model_comparison(list(
-  GLM  = list(actual = hp_actual_class, predicted = hp_pred_glm),
-  QDA  = list(actual = hp_actual_class, predicted = hp_pred_qda),
-  TREE = list(actual = hp_actual_class, predicted = hp_pred_tree)
-))
-
-
-
-
-
-
-
-
-
-
-```
-
-
-
 
 ```

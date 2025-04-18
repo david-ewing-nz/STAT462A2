@@ -1,0 +1,63 @@
+### Determine the number of distinct colour classes present in the dataset.
+```{r wsb-step-01}
+print(" Determine the number of distinct colour classes present in the dataset.")
+n_classes <- length(unique(colour_df$color))
+n_classes
+cat("distinct colour classes",n_classes,"\n")
+```
+
+### Fit a Quadratic Discriminant Analysis (QDA) algorithm to the classification problem.
+```{r wsb-step-02}
+print(" Fit a Quadratic Discriminant Analysis (QDA) algorithm to the classification problem.")
+ 
+model_qda <- qda(color ~ r + b, data = colour_df)
+model_qda
+```
+
+### Visualise the decision boundaries of the fitted QDA model in a suitable way.
+```{r wsb-step-03}
+print("Visualise the decision boundaries of the fitted QDA model in a suitable way.")
+ 
+grid_points <- expand.grid(
+  r = seq(0, 255, length.out = 100),
+  b = seq(0, 255, length.out = 100)
+)
+grid_pred <- predict(model_qda, grid_points)$class
+grid_points$color <- grid_pred
+plot_qda_boundary <- ggplot(grid_points, aes(x = r, y = b, fill = color)) +
+  geom_tile(alpha = 0.6) +
+  geom_point(data = colour_df, aes(x = r, y = b, colour = color), size = 1.2, shape = 21) +
+  theme_minimal() +
+  labs(title = "QDA Decision Boundaries (r vs b)", x = "Red", y = "Blue")
+plot_qda_boundary
+```
+
+### Test the QDA algorithm on the input (200, 0, 200).
+```{r wsb-step-04}
+print(" Test the QDA algorithm on the input (200, 0, 200).")
+new_colour <- data.frame(r = 200, b = 200)
+qda_prediction <- predict(model_qda, new_colour)
+qda_prediction
+```
+
+### Determine what colour name is predicted by the algorithm for the input (200, 0, 200).
+```{r wsb-step-05}
+print(" Determine what colour name is predicted by the algorithm for the input (200, 0, 200).")
+predicted_class <- qda_prediction$class
+predicted_class
+```
+
+### (Optional) Implement k-Nearest Neighbours and compare its performance with the QDA algorithm.
+```{r wsb-step-06}
+print(" Learn about k-Nearest Neighbors (kNN) classification, implement it, and compare performance with QDA.")
+library(class)
+set.seed(82171165)
+library(caret)
+control <- trainControl(method = "cv", number = 10)
+train_qda <- train(color ~ r + b, data = colour_df, method = "qda", trControl = control)
+train_knn <- train(color ~ r + b, data = colour_df, method = "knn", tuneLength = 5, trControl = control)
+qda_results <- train_qda$results
+knn_results <- train_knn$results
+qda_results
+knn_results
+```

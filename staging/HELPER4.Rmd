@@ -1,3 +1,4 @@
+
 ```{r  , include=FALSE}
 #' Format a data frame as a styled flextable
 pretty_df <- function(df,

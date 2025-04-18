@@ -107,23 +107,31 @@ if ("conflicted" %in% loadedNamespaces()) {
 
 
 ```{r PARENT-include-helper, include=FALSE}
- 
-
+getwd()
+#browser()
+ if (!exists("has_run")    ) {
+   has_run <- FALSE
+   print("has_run is FALSE")
+ }
 knitr::opts_chunk$set(cache = FALSE)
-
  
-  PROJECT_SUBDIR  <- "STAGING/"
-    PROJECT_PATH    <- trimws(rprojroot::find_root(rprojroot::is_rstudio_project))
-  PROJECT_SUBDIR  <- file.path(PROJECT_PATH, PROJECT_SUBDIR)
 
-  HELPER_PATH   <- "HELPER4.R"
-  HELPER_PATH   <- file.path(PROJECT_SUBDIR, HELPER_PATH)
+if(!has_run){
+  browser()
+  has_run <- TRUE     # RUN ALL GETS STUCK
+  HELPER_FILE     <- "HELPER4.Rmd"  # <- IS THIS THE RIGHT FILE????
+  
+ 
+  HELPER_PATH     <- file.path(getwd(), HELPER_FILE)
 
   cat(knitr::knit_child(HELPER_PATH, envir = knitr::knit_global(), options = list(label = NULL)))
+} else {
+  MSG = "didnt run"
+}
 
 ```
 
-```
+  
 
 
 
@@ -175,8 +183,8 @@ is_PDF <- knitr::is_latex_output()
 
 # Path to the helper Rmd file
 HELPER_PATH <- "HELPER-functions-v1.Rmd"
-HELPER_PATH <- file.path(PROJECT_CODE, HELPER_PATH)
 
+HELPER_PATH     <- file.path(getwd(), HELPER_FILE)
 ```
 
 #---------- THIS IS ONLY IN REPORT  ------
@@ -188,8 +196,8 @@ HELPER_PATH <- file.path(PROJECT_CODE, HELPER_PATH)
 
 
 # Define paths to child documents
-HEART_PATH  <- file.path(PROJECT_SUBDIR, "HEART4-DEVO.Rmd")
-COLOUR_PATH <- file.path(PROJECT_SUBDIR, "COLOUR4-DEVO.Rmd")
+HEART_PATH  <- file.path(getwd(), "HEART4-DEVO.Rmd")
+COLOUR_PATH <- file.path(getwd(), "COLOUR4-DEVO.Rmd")
 
 # Save current cache setting
 cache_default <- knitr::opts_chunk$get("cache")
