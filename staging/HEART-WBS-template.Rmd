@@ -1,0 +1,106 @@
+---
+title: "STAT462 Assignment 2 – HEART Analysis"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    fig_caption: true
+    number_sections: true
+    toc: true
+    keep_tex: true
+    fig_crop: false
+    includes:
+      in_header: ../doc/fonts.tex
+mainfont: Arial
+fontsize: 10pt
+---
+
+```{r wsb-step-00-setup, include=FALSE}
+# Load libraries and set global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE, cache = FALSE, results = "markup"
+)
+is_knitting <- !is.null(knitr::current_input())
+helper_path <- "../doc/HELPER-functions-v1.Rmd"
+cat(knitr::knit_child(helper_path, envir = knitr::knit_global()))
+```
+
+```{r wsb-step-01-load}
+# Load the raw heart dataset and preview with pretty_df
+# This is the initial data before any transformation
+hp_data <- readr::read_csv("data/heart.csv")
+pretty_df(hp_data, title = "Raw Heart Data Preview")
+```
+
+```{r wsb-step-02-clean}
+# Convert variables (e.g., DEATH to factor) and prepare hp_data for modeling
+# Use pretty_summary to understand the processed structure
+hp_data <- hp_data |>
+  mutate(DEATH = factor(DEATH, levels = c(0,1), labels = c("LIVE", "DEAD")))
+pretty_summary(hp_data)
+```
+
+```{r wsb-step-03-split}
+# Split the processed data into training and test sets (e.g., 70/30)
+# Evaluate and show class distribution using pretty_split
+set.seed(462)
+index <- sample(seq_len(nrow(hp_data)), size = 0.7 * nrow(hp_data))
+hp_train <- hp_data[index, ]
+hp_test  <- hp_data[-index, ]
+pretty_split(hp_train, hp_test, target = "DEATH")
+```
+
+```{r wsb-step-04-visual}
+# Visualize relationships between key predictors and DEATH using pretty_ggplot
+# Example: GLUCOSE vs SYSBP coloured by DEATH
+plot_obj <- ggplot(hp_data, aes(x = GLUCOSE, y = SYSBP, colour = DEATH)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "GLUCOSE vs SYSBP by DEATH")
+pretty_ggplot(plot_obj)
+```
+
+```{r wsb-step-05-model}
+# Fit a logistic regression model on training data
+# Summarize using pretty_glm
+hp_model <- glm(DEATH ~ GLUCOSE + SYSBP + AGE, data = hp_train, family = "binomial")
+pretty_glm(hp_model)
+```
+
+```{r wsb-step-06-predict}
+# Generate predicted probabilities and classify using predict_classes
+hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
+hp_pred_class <- predict_classes(hp_pred_probs, threshold = 0.5)
+```
+
+```{r wsb-step-07-eval-cm}
+# Generate and display confusion matrix using pretty_cm
+hp_cm <- table(True = hp_test$DEATH, Predicted = hp_pred_class)
+pretty_cm(hp_cm)
+```
+
+```{r wsb-step-08-eval-metrics}
+# Compute and display classification metrics using pretty_metrics
+pretty_metrics(hp_test$DEATH, hp_pred_class)
+```
+
+```{r wsb-step-09-eval-boolean}
+# Apply boolean evaluation logic using helper functions
+hp_eval <- model_boolean_eval(hp_model, hp_pred_class, hp_test$DEATH, hp_train)
+pretty_df(summarise_boolean_eval(hp_eval), title = "Boolean Evaluation Summary")
+```
+
+```{r wsb-step-10-baseline}
+# Compare model accuracy against baseline classifier
+base_rate <- max(prop.table(table(hp_test$DEATH)))
+model_accuracy <- mean(hp_pred_class == hp_test$DEATH)
+baseline_comparison <- data.frame(
+  Metric = c("Model Accuracy", "Baseline Accuracy"),
+  Value = round(c(model_accuracy, base_rate), 3)
+)
+pretty_df(baseline_comparison, title = "Model vs Baseline Accuracy")
+```
+
+```{r wsb-step-11-commentary}
+# Reflect on findings: generalisation, predictor impact, real-world use
+# Tie this back to specific assignment questions or insights
+cat("The model shows evidence of generalisation and performs better than a baseline classifier...")
+```

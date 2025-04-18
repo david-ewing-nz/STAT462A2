@@ -1,0 +1,29 @@
+\begin{table}
+\centering
+\caption{Mapping of HEART Chunk Headers to WBS Descriptions}
+\label{tab:heart_wbs_mapping}
+\begin{tabular}{ll}
+\toprule
+       Chunk Header &                                 Mapped Description \\
+\midrule
+              setup &                                                  — \\
+      wsb-env-flags &                                                  — \\
+ wsb-include-helper &                                                  — \\
+  wsb-step-03-split & Split the dataset into a training set (80\%) and... \\
+ wsb-step-04-visual & Visualise the relationship between DEATH, GLUCO... \\
+  heart-wsb-step-03 &     Form an initial hypothesis of what to look for \\
+  heart-wsb-step-04 & Fit a logistic regression model on the training... \\
+  wsb-step-05-model &            Fit model and compute misclassification \\
+wsb-step-06-predict &                   Predict on test set and evaluate \\
+wsb-step-07-eval-cm &           Compute confusion matrix on the test set \\
+  heart-wsb-step-07 &           Evaluating model fit (inserted WBS step) \\
+    (unnamed chunk) &                         Comment on goodness of fit \\
+  heart-wsb-step-09 &            Numeric metrics for evaluation criteria \\
+heart-wsb-step-10.1 &                Compare logistic regression and QDA \\
+heart-wsb-step-11.1 &                                     QDA evaluation \\
+  heart-wsb-step-12 &              Visualise decision boundaries for QDA \\
+  heart-wsb-step-13 &                             Fit a tree-based model \\
+heart-wsb-step-13.1 &              Evaluate tree-based or optional model \\
+\bottomrule
+\end{tabular}
+\end{table}
