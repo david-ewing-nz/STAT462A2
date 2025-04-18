@@ -1,0 +1,132 @@
+
+
+```{r colour-setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+### Step 1: Load and preview the Colour dataset
+```{r colour-wsb-step-01-load}
+colour_list <- pretty_read_csv("../data/colour_df_train.csv")
+colour_df   <- colour_list$df
+colour_ft   <- colour_list$ft
+
+print(colour_ft)
+```
+
+
+### Step 2: Clean and prepare data
+```{r colour-wsb-step-02-clean}
+c_vars <- c("colour", "r", "b")
+c_clean <- colour_df |>
+  select(all_of(c_vars)) |>
+  drop_na()
+
+cp_clean <- c_clean |>
+  mutate(colour = factor(colour))
+```
+
+
+### Step 3: Train/test split
+```{r colour-wsb-step-03-split}
+set.seed(123)
+c_split <- initial_split(c_clean, prop = 0.8, strata = colour)
+c_train <- training(c_split)
+c_test  <- testing(c_split)
+
+cp_train <- c_train |>
+  mutate(colour = factor(colour))
+cp_test  <- c_test |>
+  mutate(colour = factor(colour))
+
+cp_actual_class <- cp_test$colour
+```
+
+
+### Step 4: Visualise class distribution and feature relationships
+```{r colour-wsb-step-04-visualise}
+plot_dist <- ggplot(cp_clean, aes(x = r, y = b, colour = colour)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Colour Classes by R and B")
+
+print(pretty_ggplot(plot_dist, title = "Class Distribution: r vs b"))
+```
+
+
+### Step 5: Fit logistic regression model
+```{r colour-wsb-step-05-model}
+cp_model <- glm(colour ~ r + b, data = cp_train, family = "multinomial")
+print(pretty_glm(cp_model))
+```
+
+
+### Step 6: Evaluate logistic model on test set
+```{r colour-wsb-step-06-eval}
+cp_pred_glm <- predict(cp_model, newdata = cp_test, type = "class")
+cp_cmtx_glm <- make_conf_matrix(cp_pred_glm, cp_actual_class)
+cp_metrics_glm <- eval_conf_matrix(cp_cmtx_glm)
+cp_mtrx_df_glm <- summarise_metrics(cp_metrics_glm)
+
+print(pretty_cm(cp_cmtx_glm, caption = "GLM Confusion Matrix"))
+print(pretty_df(cp_mtrx_df_glm, title = "GLM Performance Metrics"))
+```
+
+
+### Step 7: Fit QDA model
+```{r colour-wsb-step-07-qda-model}
+cp_qda_model <- qda(colour ~ r + b, data = cp_train)
+qda_info <- pretty_qda(cp_qda_model)
+
+print(pretty_df(qda_info$centroids, title = "QDA Class Centroids"))
+print(pretty_df(qda_info$priors, title = "QDA Prior Probabilities"))
+cat("Symbolic QDA Equation:\n", qda_info$equation)
+```
+
+
+### Step 8: Evaluate QDA model
+```{r colour-wsb-step-08-qda-eval}
+cp_qda_probs <- predict(cp_qda_model, newdata = cp_test)$posterior
+cp_pred_qda  <- colnames(cp_qda_probs)[apply(cp_qda_probs, 1, which.max)]
+cp_pred_qda  <- factor(cp_pred_qda, levels = levels(cp_actual_class))
+
+cp_cmtx_qda <- make_conf_matrix(cp_pred_qda, cp_actual_class)
+cp_metrics_qda <- eval_conf_matrix(cp_cmtx_qda)
+cp_mtrx_df_qda <- summarise_metrics(cp_metrics_qda)
+
+print(pretty_cm(cp_cmtx_qda, caption = "QDA Confusion Matrix"))
+print(pretty_df(cp_mtrx_df_qda, title = "QDA Performance Metrics"))
+```
+
+
+### Step 9: Predict Colour(200, 0, 200)
+```{r colour-wsb-step-09-predictRGB}
+new_colour <- data.frame(r = 200, b = 0)
+
+# GLM prediction
+glm_class <- predict(cp_model, newdata = new_colour, type = "class")
+
+# QDA prediction
+qda_probs <- predict(cp_qda_model, newdata = new_colour)$posterior
+qda_class <- colnames(qda_probs)[which.max(qda_probs)]
+
+cat("Prediction for Colour(200, 0, 200):\n")
+cat("GLM: ", glm_class, "\n")
+cat("QDA: ", qda_class, "\n")
+```
+
+
+### Step 10: Compare model performance
+```{r colour-wsb-step-10-compare}
+print(pretty_model_comparison(list(
+  GLM  = list(actual = cp_actual_class, predicted = cp_pred_glm),
+  QDA  = list(actual = cp_actual_class, predicted = cp_pred_qda)
+)))
+```
+
+
+### Step 11: Summary and discussion
+```{r colour-wsb-step-11-summary}
+cat("\nModel Summary Notes:\n")
+cat("- Logistic regression worked well for separating linear boundaries.\n")
+cat("- QDA captured more complex class regions based on priors and covariances.\n")
+cat("- Predictions for Colour(200, 0, 200) showed some model disagreement.\n")
