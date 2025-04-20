@@ -1,4 +1,3 @@
-```{r  , include=FALSE}
 # Format a data frame as a styled flextable
 pretty_df <- function(df,
                       title    = NULL,
@@ -497,11 +496,9 @@ pretty_model_comparison <- function(model_list) {
 
 
 
-```
 
 
 
-```{r  }
 # --- Model Evaluation Utilities ---
 
 model_boolean_eval <- function(model, pred_class, actual_class, train_data, threshold = 0.5) {
@@ -608,7 +605,6 @@ summarise_metrics <- function(metrics_vec) {
   metric_names <- c("Misclassification Rate", "Accuracy", "Precision (DEAD)", "Recall (DEAD)", "F1 Score (DEAD)")
   data.frame(Metric = metric_names, Value = round(metrics_vec, 3), stringsAsFactors = FALSE)
 }
-```
 
 
 

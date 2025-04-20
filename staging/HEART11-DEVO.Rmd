@@ -19,14 +19,7 @@ output:
   mainfont: Arial
   fontsize: 10pt
 ---
-
-```{r file-info, echo=FALSE, results='asis'}
-
-cat("**R Markdown file name:**", knitr::current_input(), "\n\n")
-cat("**R Markdown file name:**", rmarkdown::metadata$file, "\n")
-cat("**Rendered on:**", format(Sys.time(), "%Y.%m.%d %H:%M:00"), "\n")
-```
-
+ 
 ```{r setup, include=FALSE}
 # This chunk was set up with the aid of ChatGPT.
 # The intent is to load updates quietly thus not

@@ -133,45 +133,6 @@ if(!has_run){
 
 
 
-```{r load-and-test-split, results='hide'}
-# Load heart and colour datasets from zip
-
-# Set base directory
-# Assign named paths based on filename match
-# load the dataframes via pretty_read_csv 
-# preview structure
-unzip_dir <- "../data/unzipped"
-zip_path  <- "../data/data_assignment_2.zip"
-csv_files <- unzip(zip_path, list = TRUE)$Name  # Extract filenames from the zip
-target_paths <- file.path(unzip_dir, csv_files)
-
-idx_color   <- grep("color", csv_files)
-idx_heart   <- grep("heart", csv_files)
-path_colour <- target_paths[idx_color]
-path_heart  <- target_paths[idx_heart]
- 
-heart_list  <- pretty_read_csv(path_heart, col_names = TRUE)
-colour_list <- pretty_read_csv(path_colour, col_names = TRUE)
-   
-heart_df = heart_list$df
-heart_ft = heart_list$ft 
-                                                         
-colour_df = colour_list$df
-colour_ft = colour_list$ft 
-
-
-foo <- pretty_split_df(heart_df)
-
-render_flextables <- function(ft_list) {
-  for (ft in foo) {
-    invisible(print(knitr::knit_print(ft)))
-    }
-  }
-
-render_flextables(foo)
-```
-
- 
  
  ```{r REPORT-env-flags, include=FALSE}
 # Detect if output is PDF

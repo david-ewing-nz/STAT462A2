@@ -1,88 +1,23 @@
-```{r  , include=FALSE}
-# Format a data frame as a styled flextable
-pretty_df <- function(df,
-                      title    = NULL,
-                      fontsize = 10,
-                      n        = 5) {
-  if (!is.data.frame(df)) {
-    stop("Input must be a data frame")
-  }
-  
-  # Optional row slicing
-  if (n > 0) df <- head(df, n)
-  if (n < 0) df <- tail(df, abs(n))
-  
-  ft <- flextable::flextable(df) |>
-    flextable::fontsize(size = fontsize, part = "all") |>
-    flextable::padding(padding = padding, part = "all") |>
-    flextable::align(align = "center", part = "all") |>
-    flextable::theme_booktabs() |>
-    flextable::bold(i = 1, part = "header") |>
-    flextable::autofit()
-  
-  current_width <- sum(ft$body$colwidths)
-  
-  if (!is.null(title)) {
-    estimated_char_width <- 0.07
-    title_width <- nchar(title) * estimated_char_width
-    if (title_width > current_width) {
-      scale_factor <- title_width / current_width
-      new_widths <- ft$body$colwidths * scale_factor
-      for (j in seq_along(new_widths)) {
-        ft <- flextable::width(ft, j = j, width = new_widths[j])
-      }
-    }
-    ft <- flextable::set_caption(ft, caption = title)
-  }
-  
-  return(ft)
-}
 
-pretty_df <- function(df,
-                      title    = NULL,
-                      fontsize = 10,
-                      n        = 5) {
-  if (!is.data.frame(df)) {
-    stop("Input must be a data frame")
-  }
-  
-  # Optional row slicing
-  if (n > 0) df <- head(df, n)
-  if (n < 0) df <- tail(df, abs(n))
-  
-  ft <- flextable::flextable(df)
-  
-  if (!is.null(title)) {
-    ft <- flextable::set_caption(ft, title)
-  }
-  
-  ft <- ft |>
-    flextable::fontsize(size = fontsize, part = "all") |>
-    flextable::align(align = "center", part = "all") |>
-    flextable::theme_booktabs() |>
-    flextable::bold(i = 1, part = "header") |>
-    flextable::padding(padding = 5, part = "all") |>
-    flextable::autofit()
-  
-  return(ft)
-}
-
+```{r helper-functions, include=FALSE}
+`
+ 
 
 #' Format confusion matrix as flextable
 pretty_cm <- function(cm, caption = "Confusion Matrix") {
   df <- as.data.frame.matrix(cm)
-  pretty_df(df, caption = caption)
+  pretty_df(df, title = caption
 }
 
 #' Format classification metrics
 pretty_metrics <- function(truth, predicted, caption = "Classification Metrics") {
   tab <- yardstick::metrics_vec(truth = truth, estimate = predicted, estimator = "macro")
   df <- as.data.frame(tab)
-  pretty_df(df, caption = caption)
+  pretty_df(df, title = caption
 }
 
 #' Summarise train/test splits
-pretty_split <- function(train, test, target, caption = "Train/Test Split Summary") {
+pretty_train_test_summary <- function(train, test, target, caption = "Train/Test Split Summary") {
   s <- function(data) {
     tbl <- table(data[[target]])
     out <- data.frame(
@@ -99,7 +34,7 @@ pretty_split <- function(train, test, target, caption = "Train/Test Split Summar
     cbind(Set = "Train", s(train)),
     cbind(Set = "Test", s(test))
   )
-  pretty_df(summary_df, caption = caption)
+  pretty_df(summary_df, title = caption)
 }
 
 
@@ -108,18 +43,20 @@ pretty_split <- function(train, test, target, caption = "Train/Test Split Summar
 # works with flextable; provides a summary of column types
 # and a preview
 
-pretty_read_csv <- \(path, n = 5, col_names = TRUE, show_col_types = FALSE) {   
-  df <- readr::read_csv(path, show_col_types = FALSE, col_names = col_names)
+pretty_read_cv <- function (path, n = 5, col_names = TRUE, show_col_types = FALSE) {
+    df <- readr::read_csv(path,show_col_types = FALSE, col_names = col_names)
   df <- as.data.frame(df)
   ft <- pretty_df(df,glue("CSV:{path}"))
   return(list(df=df,ft=ft))
 }
 
+
+
 # ---- Pretty Excel Reader with Type Summary and Preview ----
 # ---- Pretty Excel Reader with Type Summary and Preview ----
 # Requires: readxl, flextable, purrr
 
-pretty_read_xlsx <- \(path, sheet = 1, col_names = TRUE, n = 0) {
+pretty_read_xlsx <- function (path, sheet = 1, col_names = TRUE, n = 0) {
   # Read Excel file
   df <- readxl::read_excel(path, sheet = sheet, col_names = col_names)
   df <- as.data.frame(df)  
@@ -143,7 +80,7 @@ pretty_read_xlsx <- \(path, sheet = 1, col_names = TRUE, n = 0) {
 # ---- Pretty Excel Reader with Type Summary and Preview ----
 # Requires: readxl, flextable, purrr
 
-pretty_ggplot <- \(plot, title = "ggplot Summary") {
+pretty_ggplot <- function(plot, title = "ggplot Summary") {
   if (!inherits(plot, "gg")) stop("Input must be a ggplot object.")
   
   # Extract key components
@@ -189,7 +126,7 @@ pretty_ggplot <- \(plot, title = "ggplot Summary") {
 
 
 
-pretty_split_df <- function(df,
+pretty_flextable_columns <- function(df,
                             cols = 6,
                             title = NULL,
                             fontsize = 10,
@@ -262,14 +199,14 @@ pretty_qda <- function(qda_model) {
 pretty_thresh <- function(predicted_probs, truth, threshold = 0.5, positive_class = NULL, caption = "Threshold-Based Classification Summary") {
   predicted_class <- ifelse(predicted_probs >= threshold, positive_class, paste0("not_", positive_class))
   cm <- table(Truth = truth, Predicted = predicted_class)
-  pretty_cm(cm, caption = caption)
+  pretty_cm(cm, title = caption
 }
 
 #' Summarise variable transformations (e.g., h_ to hp_, c_ to cp_)
 pretty_transforms <- function(transform_map, caption = "Variable Transformation Mapping") {
   df <- as.data.frame(transform_map)
   names(df) <- c("Original", "Transformed")
-  pretty_df(df, caption = caption)
+  pretty_df(df, title = caption
 }
 
 #' Summarise missing value patterns
@@ -277,14 +214,14 @@ pretty_missing <- function(df, caption = "Missing Data Summary") {
   missings <- sapply(df, function(x) sum(is.na(x)))
   df_out <- data.frame(Variable = names(missings), Missing_Count = missings)
   df_out <- df_out[df_out$Missing_Count > 0, ]
-  pretty_df(df_out, caption = caption)
+  pretty_df(df_out, title = caption
 }
 
 #' Display model object summary (generic use for tree, lm, etc.)
 pretty_model <- function(model, caption = "Model Summary") {
   summary_text <- capture.output(summary(model))
   df <- data.frame(Summary = summary_text)
-  pretty_df(df, caption = caption)
+  pretty_df(df, title = caption
 }
 
 #' Format and preview a CSV file as a flextable
@@ -335,49 +272,9 @@ pretty_summary <- function(df) {
     flextable::theme_vanilla()
   ft
 }
+ 
 
-#' Pretty read_csv with summary and preview
-pretty_read_csv <- function(path, n = 5, col_names = TRUE, show_col_types = FALSE) {
-  df <- readr::read_csv(path, show_col_types = FALSE, col_names = col_names)
-  df <- as.data.frame(df)
-  ft <- pretty_df(df, glue::glue("CSV: {path}"))
-  list(df = df, ft = ft)
-}
-
-#' Pretty Excel Reader with type summary and preview
-pretty_read_xlsx <- function(path, sheet = 1, col_names = TRUE, n = 0) {
-  df <- readxl::read_excel(path, sheet = sheet, col_names = col_names)
-  df <- as.data.frame(df)
-  types <- purrr::map_chr(df, typeof)
-  type_df <- data.frame(Column = names(df), Type = types, stringsAsFactors = FALSE)
-  ft <- pretty_df(type_df, glue::glue("XLSX Column Types: {path}"))
-  list(df = df, ft = ft)
-}
-
-#' Pretty ggplot metadata summary
-pretty_ggplot <- function(plot, title = "ggplot Summary") {
-  if (!inherits(plot, "gg")) stop("Input must be a ggplot object.")
-  
-  plot_data <- tryCatch(plot$data, error = function(e) NULL)
-  geoms <- sapply(plot$layers, function(layer) class(layer$geom)[1])
-  mappings <- plot$mapping
-  
-  global_aes  <- names(mappings)
-  global_vals <- sapply(mappings, function(x) rlang::expr_text(x))
-  
-  p_title <- plot$labels$title %||% title %||% ""
-  x_lab   <- plot$labels$x %||% ""
-  y_lab   <- plot$labels$y %||% ""
-  colour_lab <- plot$labels$colour %||% plot$labels$color %||% ""
-  
-  df <- data.frame(
-    Component = c("Title", "X Axis", "Y Axis", "Colour Legend", "Geoms", global_aes),
-    Value = c(p_title, x_lab, y_lab, colour_lab, paste(geoms, collapse = ","), global_vals),
-    stringsAsFactors = FALSE
-  )
-  pretty_df(df)
-}
-
+ 
 #' Pretty glm model summary
 pretty_glm <- function(model) {
   if (!inherits(model, "glm")) {
@@ -406,93 +303,10 @@ pretty_glm <- function(model) {
   })
 }
 
-#' Pretty split df into multiple flextables
-pretty_split_df <- function(df, cols = 6, title = NULL, fontsize = 10, n = 5) {
-  if (!is.data.frame(df)) stop("Object is not a data frame.")
-  title <- if (is.null(title)) deparse(substitute(df)) else title
-  df_show <- if (n > 0) head(df, n) else if (n < 0) tail(df, abs(n)) else df
-  col_groups <- split(names(df_show), ceiling(seq_along(df_show) / cols))
-  ft_list <- lapply(seq_along(col_groups), function(i) {
-    subdf <- df_show[, col_groups[[i]], drop = FALSE]
-    pretty_df(subdf, title = paste0(title, " (", i, ")"), fontsize = fontsize, n = n)
-  })
-  names(ft_list) <- paste0(title, " (", seq_along(ft_list), ")")
-  ft_list
-}
+ 
 
 
-pretty_model_comparison <- function(model_results) {
-  stopifnot(is.list(model_results))
-  
-  summary_list <- lapply(names(model_results), function(name) {
-    result <- model_results[[name]]
-    actual <- result$actual
-    predicted <- result$predicted
-    
-    # Confusion matrix
-    cm <- table(Predicted = predicted, Actual = actual)
-    
-    TP <- cm["DEAD", "DEAD"]
-    TN <- cm["LIVE", "LIVE"]
-    FP <- cm["DEAD", "LIVE"]
-    FN <- cm["LIVE", "DEAD"]
-    
-    accuracy  <- (TP + TN) / sum(cm)
-    precision <- TP / (TP + FP)
-    recall    <- TP / (TP + FN)
-    f1        <- 2 * precision * recall / (precision + recall)
-    
-    data.frame(
-      Model     = name,
-      Accuracy  = round(accuracy, 3),
-      Precision = round(precision, 3),
-      Recall    = round(recall, 3),
-      F1        = round(f1, 3),
-      stringsAsFactors = FALSE
-    )
-  })
-  
-  summary_df <- do.call(rbind, summary_list)
-  pretty_df(summary_df, title = "Model Comparison Summary")
-}
-
-
-
-pretty_model_comparison <- function(model_list) {
-  stopifnot(is.list(model_list))
-  
-  # Storage
-  comparison <- data.frame()
-  
-  for (name in names(model_list)) {
-    entry <- model_list[[name]]
-    
-    # Required elements in each entry
-    actual <- entry$actual
-    predicted <- entry$predicted
-    
-    # Generate confusion matrix
-    cm <- make_conf_matrix(predicted, actual)
-    metrics <- eval_conf_matrix(cm)
-    
-    comparison <- rbind(comparison, data.frame(
-      Model        = name,
-      Accuracy     = round(metrics[2], 3),
-      Precision    = round(metrics[3], 3),
-      Recall       = round(metrics[4], 3),
-      F1_Score     = round(metrics[5], 3),
-      MisclassRate = round(metrics[1], 3)
-    ))
-  }
-  
-  # Reorder columns to preference
-  comparison <- comparison[, c("Model", "Accuracy", "Precision", "Recall", "F1_Score", "MisclassRate")]
-  
-  # Return as pretty flextable
-  pretty_df(comparison, title = "Model Performance Comparison")
-}
-
-
+ 
 
 
 
@@ -608,7 +422,51 @@ summarise_metrics <- function(metrics_vec) {
   metric_names <- c("Misclassification Rate", "Accuracy", "Precision (DEAD)", "Recall (DEAD)", "F1 Score (DEAD)")
   data.frame(Metric = metric_names, Value = round(metrics_vec, 3), stringsAsFactors = FALSE)
 }
+
+
+pretty_df <- function(df,
+                      title    = NULL,
+                      fontsize = 10,
+                      padding  = 5,  # defined here
+                      n        = 5) {
+  if (!is.data.frame(df)) {
+    stop("Input must be a data frame")
+  }
+  
+  # Optional row slicing
+  if (n > 0) df <- head(df, n)
+  if (n < 0) df <- tail(df, abs(n))
+  
+  ft <- flextable::flextable(df) |>
+    flextable::fontsize(size = fontsize, part = "all") |>
+    flextable::padding(padding = padding, part = "all") |>
+    flextable::align(align = "center", part = "all") |>
+    flextable::theme_booktabs() |>
+    flextable::bold(i = 1, part = "header") |>
+    flextable::autofit()
+  
+  # Estimate and optionally adjust for long titles
+  if (!is.null(title)) {
+    estimated_char_width <- 0.07
+    title_width <- nchar(title) * estimated_char_width
+    
+    if (!is.null(ft$body$colwidths)) {
+      current_width <- sum(ft$body$colwidths, na.rm = TRUE)
+      
+      if (title_width > current_width && current_width > 0) {
+        scale_factor <- title_width / current_width
+        new_widths <- ft$body$colwidths * scale_factor
+        
+        for (j in seq_along(new_widths)) {
+          ft <- flextable::width(ft, j = j, width = new_widths[j])
+        }
+      }
+    }
+    
+    ft <- flextable::set_caption(ft, caption = title)
+  }
+
+  return(ft)
+}
+
 ```
-
-
-
