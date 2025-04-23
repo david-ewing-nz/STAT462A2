@@ -68,19 +68,22 @@ required_packages <- c(
   "GGally",        # Pair plots
   "ggplot2",       # Core plotting
   "glmnet",        # Regularised regression
-  "glue",          # glue
-  "patchwork",      # ✅ for ggplot grid layouts
-  "rsample",         # initial_split
+  "glue",          # String interpolation
   "kableExtra",    # Table formatting
   "knitr",         # Inline rendering
   "MASS",          # LDA/QDA and logistic
-  "nnet",
+  "nnet",          # Neural networks (multinomial logistic regression)
   "officer",       # Word/PDF table styling (used by flextable)
+  "patchwork",     # for ggplot grid layouts
+  "purr"
+  "rsample",       # Data splitting
   "skimr",         # Data summaries
-  "tree",
-  "tidyverse",     # Core data science packages
-  "tibble"         # Modern data frames
+  "tree",          # Decision trees
+  "yardstick",     # tidy classification metrics
+  "tibble",        # Modern data frames
+  "tidyverse"      # Core data science packages (optional/redundant)
 )
+
 for (pkg in required_packages) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
     install.packages(pkg)
@@ -149,18 +152,20 @@ pretty_df <- function(df,
 
 
 #' Format a confusion matrix as flextable
-pretty_cm <- function(cm, title = "Confusion Matrix") {
-  df <- as.data.frame.matrix(cm)
-  pretty_df(df, title = title)
+pretty_cmtx <- function(cmtx_tbl, title = "Confusion Matrix") {
+  df <- as.data.frame.matrix(cmtx_tbl)               # Convert to data.frame (wide format)
+  df <- cbind(Predicted = rownames(df), df)      # Add row names as column
+  rownames(df) <- NULL                           # Remove rownames
+  pretty_df(df, title = title)                   # Format with your pretty_df()
 }
 
 
 #' Format classification metrics
-pretty_metrics <- function(truth, predicted, title = "Classification Metrics") {
-  tab <- yardstick::metrics_vec(truth = truth, estimate = predicted, estimator = "macro")
-  df <- as.data.frame(tab)
-  pretty_df(df, title = title)
+pretty_heart_mtrx <- function(cmtx_tbl, title = "Classification Metrics") {
+  metrics_df <- eval_heart_cmtx(cmtx_tbl)      # Compute the metrics
+  pretty_df(metrics_df, title = title)      # Format as flextable
 }
+
 
 
 #' Summarise train/test splits
@@ -377,7 +382,7 @@ pretty_qda <- function(qda_model) {
 pretty_thresh <- function(predicted_probs, truth, threshold = 0.5, positive_class = NULL, title = "Threshold-Based Classification Summary") {
   predicted_class <- ifelse(predicted_probs >= threshold, positive_class, paste0("not_", positive_class))
   cm <- table(Truth = truth, Predicted = predicted_class)
-  pretty_cm(cm, title = title)
+  pretty_cmtx(cm, title = title)
 }
 
 
@@ -447,7 +452,7 @@ pretty_summary <- function(df) {
   ft
 }
 
-pretty_model_comparison <- function(model_list) {
+pretty_heart_comparison <- function(model_list) {
   stopifnot(is.list(model_list))
   
   # Storage
@@ -461,8 +466,8 @@ pretty_model_comparison <- function(model_list) {
     predicted <- entry$predicted
     
     # Generate confusion matrix
-    cm <- make_conf_matrix(predicted, actual)
-    metrics <- eval_conf_matrix(cm)
+    cm <- make_heart_cmtx(predicted, actual)
+    metrics <- eval_heart_cmtx(cm)
     
     comparison <- rbind(comparison, data.frame(
       Model        = name,
@@ -486,6 +491,8 @@ pretty_model_comparison <- function(model_list) {
 
 
 
+
+
 ```
 
 
@@ -494,9 +501,16 @@ pretty_model_comparison <- function(model_list) {
 # --- Model Evaluation Utilities ---
 
 model_boolean_eval <- function(model, pred_class, actual_class, train_data, threshold = 0.5) {
+  # Ensure inputs are numeric 0/1
+  actual_class <- if (is.factor(actual_class)) as.integer(actual_class) - 1 else actual_class
+  pred_class   <- if (is.factor(pred_class)) as.integer(pred_class) - 1 else pred_class
+  train_death  <- if (is.factor(train_data$DEATH)) as.integer(train_data$DEATH) - 1 else train_data$DEATH
+
+  # Significance test
   pvals <- broom::tidy(model)$p.value
   sig_all <- all(pvals < 0.05)
 
+  # Accuracy comparisons
   test_acc <- mean(pred_class == actual_class)
   base_acc <- max(prop.table(table(actual_class)))
   better_than_random <- test_acc > 0.5
@@ -506,9 +520,10 @@ model_boolean_eval <- function(model, pred_class, actual_class, train_data, thre
   better_than_baseline_strong   <- (test_acc - base_acc) >= 0.02
   real_world_gain               <- (test_acc - base_acc) >= 0.05
 
+  # Generalisation test
   train_probs <- predict(model, newdata = train_data, type = "response")
   train_class <- ifelse(train_probs > threshold, 1, 0)
-  train_acc <- mean(train_class == train_data$DEATH)
+  train_acc <- mean(train_class == train_death)
   well_generalised <- abs(train_acc - test_acc) < 0.05
 
   list(
@@ -521,6 +536,42 @@ model_boolean_eval <- function(model, pred_class, actual_class, train_data, thre
     better_than_strong = better_than_baseline_strong,
     well_generalised = well_generalised,
     real_world_gain = real_world_gain
+  )
+}
+
+model_multiclass_eval <- function(pred_class, actual_class) {
+  # Ensure inputs are factors with correct levels
+  labels <- c("RED", "GREEN", "BLUE")
+  pred_class   <- if (is.numeric(pred_class)) factor(pred_class, levels = 1:3, labels = labels) else pred_class
+  actual_class <- if (is.numeric(actual_class)) factor(actual_class, levels = 1:3, labels = labels) else actual_class
+
+  # Accuracy and baseline
+  accuracy <- mean(pred_class == actual_class)
+  base_acc <- max(prop.table(table(actual_class)))
+  better_than_baseline <- (accuracy - base_acc) >= 0.02
+  strong_performance   <- accuracy >= 0.75
+
+  # Macro-averaged precision and recall
+  precision <- recall <- rep(NA, 3)
+  for (i in seq_along(labels)) {
+    class <- labels[i]
+    tp <- sum(pred_class == class & actual_class == class)
+    fp <- sum(pred_class == class & actual_class != class)
+    fn <- sum(pred_class != class & actual_class == class)
+    precision[i] <- if ((tp + fp) > 0) tp / (tp + fp) else NA
+    recall[i]    <- if ((tp + fn) > 0) tp / (tp + fn) else NA
+  }
+
+  macro_precision <- mean(precision, na.rm = TRUE)
+  macro_recall    <- mean(recall, na.rm = TRUE)
+
+  list(
+    accuracy = accuracy,
+    base_acc = base_acc,
+    better_than_baseline = better_than_baseline,
+    strong_performance = strong_performance,
+    macro_precision = macro_precision,
+    macro_recall = macro_recall
   )
 }
 
@@ -558,46 +609,259 @@ summarise_boolean_eval <- function(eval_list) {
 }
 
 
-#Convert probabilities to labelled factor predictions
-predict_classes <- function(probs, threshold = 0.5) {
-  factor(ifelse(probs > threshold, 1, 0), levels = c(0, 1), labels = c("LIVE", "DEAD"))
+
+#---------------- prediction & confusion helpers ------------------------------
+
+
+predict_heart_classes <- function(probs, threshold = 0.5) {
+  pred <- ifelse(probs > threshold, 1, 0)
+  factor(pred, levels = c(0, 1), labels = c("LIVE", "DEAD")) #binary probabilities to factor labels for heart
 }
 
-# 2. Create a labelled confusion matrix from predicted and actual class labels
-make_conf_matrix <- function(pred_class, actual_class) {
+# Create confusion matrix for heart
+make_heart_cmtx <- function(pred_class, actual_class) {
+  pred_class <- if (is.numeric(pred_class)) {
+    factor(pred_class, levels = c(0, 1), labels = c("LIVE", "DEAD"))
+  } else pred_class
+  actual_class <- if (is.numeric(actual_class)) {
+    factor(actual_class, levels = c(0, 1), labels = c("LIVE", "DEAD"))
+  } else actual_class
+
   table(
     Predicted = factor(pred_class, levels = c("LIVE", "DEAD")),
     Actual    = factor(actual_class, levels = c("LIVE", "DEAD"))
   )
 }
 
-# 3. Compute performance metrics from a 2x2 labelled confusion matrix
-# Returns: misclassification, accuracy, precision, recall, F1
-eval_conf_matrix <- function(cmtx) {
-  tp <- cmtx["DEAD", "DEAD"]
-  tn <- cmtx["LIVE", "LIVE"]
-  fp <- cmtx["DEAD", "LIVE"]
-  fn <- cmtx["LIVE", "DEAD"]
-  total <- sum(cmtx)
+eval_heart_cmtx <- function(cmtx_tbl) {
+  if (!(all(rownames(cmtx_tbl) == c("LIVE", "DEAD")) || !all(colnames(cmtx_tbl) == c("LIVE", "DEAD")))) {
+    stop("Confusion matrix must use levels: LIVE and DEAD in [row, col] format")
+  }
 
-  if (total == 0 || any(is.na(c(tp, tn, fp, fn)))) return(rep(NA, 5))
+  tp <- cmtx_tbl["DEAD", "DEAD"]
+  tn <- cmtx_tbl["LIVE", "LIVE"]
+  fp <- cmtx_tbl["LIVE", "DEAD"]
+  fn <- cmtx_tbl["DEAD", "LIVE"]
+  total <- sum(cmtx_tbl)
+
+  if (total == 0 || any(is.na(c(tp, tn, fp, fn)))) {
+    return(data.frame(
+      Metric = c("Misclass Rate", "Accuracy", "Precision", "Recall", "F1 Score"),
+      Value = rep(NA_real_, 5)
+    ))
+  }
 
   accuracy  <- (tp + tn) / total
   precision <- if ((tp + fp) > 0) tp / (tp + fp) else NA
   recall    <- if ((tp + fn) > 0) tp / (tp + fn) else NA
-  f1        <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0)
-                 2 * precision * recall / (precision + recall) else NA
+  f1        <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0) {
+    2 * precision * recall / (precision + recall)
+  } else NA
   misclass  <- 1 - accuracy
 
-  c(misclass, accuracy, precision, recall, f1)
+  data.frame(
+    Metric = c("Misclass Rate", "Accuracy", "Precision", "Recall", "F1 Score"),
+    Value  = round(c(misclass, accuracy, precision, recall, f1), 3)
+  )
 }
 
-# 4. Convert a vector of named metrics into a summary data frame
-summarise_metrics <- function(metrics_vec) {
-  metric_names <- c("Misclassification Rate", "Accuracy", "Precision (DEAD)", "Recall (DEAD)", "F1 Score (DEAD)")
-  data.frame(Metric = metric_names, Value = round(metrics_vec, 3), stringsAsFactors = FALSE)
+
+
+summarise_heart_results <- function(pred_probs, actual_class, threshold = 0.5) {
+  pred_class <- predict_heart_classes(pred_probs, threshold)
+  cmtx_tbl   <- make_heart_cmtx(pred_class, actual_class)
+  metrics_df <- eval_heart_cmtx(cmtx_tbl)
+
+  list( 
+    pred_class = pred_class,
+    cmtx_tbl   = cmtx_tbl,                     # raw
+    metrics_df = metrics_df,                   # raw
+    cmtx_ft    = pretty_cmtx(cmtx_tbl),
+    mtrx_ft    = pretty_df(metrics_df)
+  )
 }
+
+
+
+
+# Convert multiclass probabilities to factor labels for colour
+predict_colour_classes <- function(probs) {
+  pred <- apply(probs, 1, which.max)
+  factor(pred, levels = 1:3, labels = c("RED", "GREEN", "BLUE"))
+}
+
+# Create confusion matrix for colour
+make_colour_cmtx <- function(pred_class, actual_class) {
+  pred_class <- if (is.numeric(pred_class)) factor(pred_class, levels = 1:3, labels = c("RED", "GREEN", "BLUE")) else pred_class
+  actual_class <- if (is.numeric(actual_class)) factor(actual_class, levels = 1:3, labels = c("RED", "GREEN", "BLUE")) else actual_class
+  table(
+    Predicted = factor(pred_class, levels = c("RED", "GREEN", "BLUE")),
+    Actual    = factor(actual_class, levels = c("RED", "GREEN", "BLUE"))
+  )
+}
+
+eval_colour_cmtx <- function(cmtx) {
+  expected_levels <- c("RED", "GREEN", "BLUE")
+  if (!all(rownames(cmtx) == expected_levels) || !all(colnames(cmtx) == expected_levels)) {
+    stop("Confusion matrix must use levels: RED, GREEN, BLUE in [row, col] format")
+  }
+
+  # Total correct predictions
+  correct <- sum(diag(cmtx))
+  total   <- sum(cmtx)
+  accuracy <- correct / total
+
+  # Precision, Recall, F1 per class
+  precision_vec <- recall_vec <- f1_vec <- numeric(length(expected_levels))
+
+  for (i in seq_along(expected_levels)) {
+    cls <- expected_levels[i]
+    tp  <- cmtx[cls, cls]
+    fp  <- sum(cmtx[cls, ]) - tp
+    fn  <- sum(cmtx[, cls]) - tp
+
+    precision <- if ((tp + fp) > 0) tp / (tp + fp) else NA
+    recall    <- if ((tp + fn) > 0) tp / (tp + fn) else NA
+    f1        <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0) {
+                   2 * precision * recall / (precision + recall)
+                 } else NA
+
+    precision_vec[i] <- precision
+    recall_vec[i]    <- recall
+    f1_vec[i]        <- f1
+  }
+
+  macro_precision <- mean(precision_vec, na.rm = TRUE)
+  macro_recall    <- mean(recall_vec, na.rm = TRUE)
+  macro_f1        <- mean(f1_vec, na.rm = TRUE)
+  misclass        <- 1 - accuracy
+
+  data.frame(
+    Metric = c("Misclass Rate", "Accuracy", "Precision (macro)", "Recall (macro)", "F1 Score (macro)"),
+    Value  = round(c(misclass, accuracy, macro_precision, macro_recall, macro_f1), 3)
+  )
+}
+
+
+make_colour_cmtx <- function(pred_class, actual_class) {
+  pred_class <- if (is.numeric(pred_class)) {
+    factor(pred_class, levels = 1:3, labels = c("RED", "GREEN", "BLUE"))
+  } else pred_class
+  actual_class <- if (is.numeric(actual_class)) {
+    factor(actual_class, levels = 1:3, labels = c("RED", "GREEN", "BLUE"))
+  } else actual_class
+
+  table(
+    Predicted = factor(pred_class, levels = c("RED", "GREEN", "BLUE")),
+    Actual    = factor(actual_class, levels = c("RED", "GREEN", "BLUE"))
+  )
+}
+
+#' Fit GLM, QDA, and Tree models for heart 
+
+fit_heart_models <- function(formula, train_data) {
+  
+  # formula    = the model formula (e.g., DEATH ~ GLUCOSE + SYSBP + AGE)
+  # train_data = the training dataset (e.g., hp_train
+  
+  glm_model   <- glm(formula, data = train_data, family = binomial)
+  qda_model   <- qda(formula, data = train_data)
+  tree_model  <- tree(formula, data = train_data)
+  
+  list(
+    formula       = formula,    # formula
+    hp_model      = glm_model,  # GLM   equal classes linear and simple 
+    hp_qda_model  = qda_model,  # QDA   class specific quadratic and spead out
+    hp_tree_model = tree_model  # tree  human readable  
+  )
+}
+
+#' Fit GLM, QDA, and Tree models for heart analysis
+#' @param formula the model formula (e.g., DEATH ~ GLUCOSE + SYSBP + AGE)
+#' @param train_data the training dataset (e.g., hp_train)
+#' @return a named list of models and the equation used
+
+fit_heart_models <- function(formula, train_data) {
+  glm_model   <- glm(formula, data = train_data, family = binomial)
+  qda_model   <- qda(formula, data = train_data)
+  tree_model  <- tree(formula, data = train_data)
+  
+  list(
+    formula     = formula,
+    hp_model    = glm_model,
+    hp_qda_model = qda_model,
+    hp_tree_model = tree_model
+  )
+}
+
+
+
+
+#' Eval heart model at   threshold , return full output set
+
+# results_<LM-TYPE_<THRESHOLD> 
+#  │
+#  ├── pred_class         # Factor: predicted labels ("LIVE", "DEAD")
+#  ├── cmtx_tbl           # Table: confusion matrix
+#  ├── cmtx_ft            # Flextable: formatted confusion matrix
+#  ├── metrics_df         # Data frame of evaluation metrics
+#  │   ├── Type           # Character: model type, e.g. "GLM"
+#  │   ├── Threshold      # Character or numeric: threshold used, e.g. 0.10
+#  │   ├── Metric         # Character: metric name
+#  │   │   ├── "Misclass Rate"
+#  │   │   ├── "Accuracy"
+#  │   │   ├── "Precision"
+#  │   │   ├── "Recall"
+#  │   │   └── "F1 Score"
+#  │   └── Value          # Numeric: corresponding metric value (e.g., 0.336)
+#  ├── metrics_ft         # Flextable: formatted version of metrics_df
+#  └── misclass           # Numeric: extracted misclassification rate (e.g., 0.664)
+
+
+
+#' 
+run_heart_eval <- function(model, threshold, type = "GLM" ) {
+   
+  probs <- switch(         #  model type from predicted probabilities
+    type,
+    "TREE" = predict(model, newdata = hp_test, type = "vector")[, "DEAD"],
+    "GLM"  = predict(model, newdata = hp_test, type = "response"),
+    "QDA"  = predict(model, newdata = hp_test)$posterior[, "DEAD"],
+    "QDA"  = predict(model, newdata = hp_test)$posterior[, "DEAD"],  # ✅ Extract only the probabilities
+  
+    stop("Unsupported model type")
+  )
+
+  pred_class <- predict_heart_classes(probs, threshold)     # Predictx class from prob
+  cmtx_tbl   <- make_heart_cmtx(pred_class, hp_actual_class)# Confusion matrix 
+  metrics_df <- eval_heart_cmtx(cmtx_tbl) |>                  # and metrics
+                  
+  title      <- glue("Confusion Matrix: {type}, Threshold = {threshold}")
+  cmtx_ft    <- pretty_cmtx( cmtx_tbl, title)
+  
+  title      <- glue("Performance: {type}, Threshold = {threshold}")        
+  metrics_df <- eval_heart_cmtx(cmtx_tbl) |> # make pretty
+                  mutate(Threshold = as.character(threshold)) |>
+                  relocate(Threshold, .before = Metric)
+
+  misclass <- metrics_df$Value[metrics_df$Metric == "Misclass Rate"]   # Misclass  
+
+  # Return all useful outputs
+  list(
+    pred_class = pred_class,
+    cmtx_tbl   = cmtx_tbl,
+    cmtx_ft    = cmtx_ft,     #if you need to do more
+    metrics_df = metrics_df,
+    metrics_ft = metrics_ft,
+    misclass   = misclass
+  )
+}
+
+
+
 ```
+
+
 
 
 
@@ -619,7 +883,7 @@ path_colour <- target_paths[idx_color]
 path_heart  <- target_paths[idx_heart]
  
 heart_list  <- pretty_read_csv(path_heart, col_names = TRUE)
-color_ft <- pretty_read_csv(path_colour, col_names = TRUE)
+color_ft    <- pretty_read_csv(path_colour, col_names = TRUE)
    
 heart_df = heart_list$df
 heart_ft = heart_list$ft 
@@ -639,6 +903,84 @@ render_flextables <- function(ft_list) {
 render_flextables(foo)
 ```
  
+
+
+```{r heart-wsb-step-00-index, echo=FALSE}
+# Define the index of evaluated heart models
+heart_eval_index <- as.data.frame(
+  tribble(
+    ~Model,     ~Threshold, ~`Evaluation Label`,                          ~`Variable Name`,
+    "GLM",       "0.10", "GLM at 0.10 threshold",           "results_glm_10",
+    
+    "GLM",       "0.25", "GLM at 0.25 threshold",           "results_glm_25",
+     
+    "GLM",       "0.50", "GLM at 0.50 threshold",             "results_glm_50",
+    
+    "GLM",       "0.75", "GLM at 0.75 threshold",            "results_glm_75",
+    
+    "GLM",       "0.90", "GLM at 0.90 threshold",              "results_glm_90",
+    
+    "QDA",       "0.50", "QDA at 0.50 threshold",              "results_qda_50",
+    
+    "Tree",      "0.50", "Tree at 0.50 threshold",              "results_tree_50",
+    
+    "GLM (ref)", "0.50", "GLM (reference model) for comparison", "results_glm_50"
+  )
+)
+heart_output_usage <- tribble(
+  ~`Output Element`, ~`Used For`,
+  "metrics_df", "Comparisons, inline writeup, plots, export",
+  "metrics_ft", "Report-ready display",
+  "cmtx_tbl",   "If you want to calculate stats manually",
+  "cmtx_ft",    "Report-ready display of confusion matrix",
+  "misclass",    "Writeup commentary (\"the misclass rate was…\")",
+  "pred_class",  "Plots, boundary visuals"
+) |> 
+  as.data.frame()
+
+ft_heart_output_usage <- pretty_df(heart_output_usage, title = "Output Elements from run_heart_eval() and Their Use")
+print(ft_heart_output_usage)
+
+# Format as a flextable
+ft_heart_eval_index <- pretty_df(heart_eval_index, title = "Index of Evaluated Heart Models")
+
+# Print for early inspection
+print(ft_heart_eval_index)
+
+```
+
+
+```{r wsb-step-03-split}
+cat("### Split the dataset into a training set (80%) and a test set (20%)\n")
+
+# Define conversion helpers
+as_hp <- function(x) factor(x, levels = c(0, 1), labels = c("LIVE", "DEAD"))
+as_h  <- function(x) as.integer(x) - 1
+
+# Select and convert DEATH to binary early
+h_vars   <- c("DEATH", "GLUCOSE", "SYSBP", "AGE")
+h_clean  <- heart_df |>
+  select(all_of(h_vars)) |>
+  drop_na() |>
+  mutate(DEATH = as_h(DEATH))  # 0/1 version for modeling
+
+# Stratified split using binary DEATH
+set.seed(82171165)
+h_split <- initial_split(h_clean, prop = 0.8, strata = DEATH)
+h_train <- training(h_split)
+h_test  <- testing(h_split)
+
+# Pretty/labeled version for visualization
+hp_clean <- h_clean |> mutate(DEATH = as_hp(DEATH))
+hp_train <- h_train |> mutate(DEATH = as_hp(DEATH))
+hp_test  <- h_test  |> mutate(DEATH = as_hp(DEATH))
+
+# True observed labels for evaluation
+h_actual_class  <- h_test$DEATH
+hp_actual_class <- hp_test$DEATH
+
+```
+
 
 ```{r wsb-step-03-split}
 cat("### Split the dataset into a training set (80%) and a test set (20%)
@@ -679,17 +1021,17 @@ hp_actual_class <- hp_test$DEATH
 ```{r wsb-step-04-visual}
 cat("### Visualise the relationship between DEATH, GLUCOSE and SYSBP\n")
 
-ggp_relationship <- ggplot(hp_clean, aes(x = GLUCOSE, y = SYSBP, colour = DEATH)) +
+hp_relationship <- ggplot(hp_clean, aes(x = GLUCOSE, y = SYSBP, colour = DEATH)) +
   geom_point(alpha = 0.6) +
   labs(title = "DEATH vs GLUCOSE and SYSBP", x = "GLUCOSE", y = "SYSBP")
 
 # 1. Distribution of SYSBP
-ggp_sysbp <- ggplot(hp_test, aes(x = SYSBP)) +
+hp_sysbp <- ggplot(hp_test, aes(x = SYSBP)) +
   geom_histogram(bins = 40, fill = "steelblue", colour = "white") +
   labs(title = "Distribution of SYSBP", x = "SYSBP", y = "Count")
 
 # 2. Distribution of GLUCOSE
-ggp_glucose <- ggplot(hp_test, aes(x = GLUCOSE)) +
+hp_glucose <- ggplot(hp_test, aes(x = GLUCOSE)) +
   geom_histogram(bins = 40, fill = "darkorange", colour = "white") +
   labs(title = "Distribution of GLUCOSE", x = "GLUCOSE", y = "Count")
 
@@ -698,30 +1040,30 @@ base <- ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP)) +
   geom_point(alpha = 0.6) +
   labs(title = NULL, x = "GLUCOSE", y = "SYSBP")
 
-p_lin_lin <- base + ggtitle("Linear X / Linear Y")
-p_log_lin <- base + scale_x_log10() + ggtitle("Log X / Linear Y")
-p_lin_log <- base + scale_y_log10() + ggtitle("Linear X / Log Y")
-p_log_log <- base + scale_x_log10() + scale_y_log10() + ggtitle("Log X / Log Y")
+hp_lin_lin <- base + ggtitle("Linear X / Linear Y")
+hp_log_lin <- base + scale_x_log10() + ggtitle("Log X / Linear Y")
+hp_lin_log <- base + scale_y_log10() + ggtitle("Linear X / Log Y")
+hp_log_log <- base + scale_x_log10() + scale_y_log10() + ggtitle("Log X / Log Y")
 
 # Combine 4 into a grid
-p_combined <- (p_lin_lin | p_log_lin) / (p_lin_log | p_log_log)
+hp_combined <- (hp_lin_lin | hp_log_lin) / (hp_lin_log | hp_log_log)
 
 # Output all plots
-print(ggp_relationship)
-print(ggp_sysbp)
-print(ggp_glucose)
-print(p_combined)
+print(hp_relationship)
+print(hp_sysbp)
+print(hp_glucose)
+print(hp_combined)
 
-pretty_ggplot(ggp_relationship, title = "Relationship: DEATH vs GLUCOSE and SYSBP")
-pretty_ggplot(ggp_sysbp, title = "Distribution of SYSBP")
-pretty_ggplot(ggp_glucose, title = "Distribution of GLUCOSE")
-pretty_ggplot(p_lin_lin, title = "Linear X / Linear Y")
-pretty_ggplot(p_log_lin, title = "Log X / Linear Y")
-pretty_ggplot(p_lin_log, title = "Linear X / Log Y")
-pretty_ggplot(p_log_log, title = "Log X / Log Y")
-pretty_ggplot(p_combined, title = "Log/Linear Scale Comparison Grid")
-
+pretty_ggplot(hp_relationship, title = "Relationship: DEATH vs GLUCOSE and SYSBP")
+pretty_ggplot(hp_sysbp, title = "Distribution of SYSBP")
+pretty_ggplot(hp_glucose, title = "Distribution of GLUCOSE")
+pretty_ggplot(hp_lin_lin, title = "Linear X / Linear Y")
+pretty_ggplot(hp_log_lin, title = "Log X / Linear Y")
+pretty_ggplot(hp_lin_log, title = "Linear X / Log Y")
+pretty_ggplot(hp_log_log, title = "Log X / Log Y")
+pretty_ggplot(hp_combined, title = "Log/Linear Scale Comparison Grid")
 ```
+
 
 ### Form an initial hypothesis of what to look for when doing the classification
 
@@ -731,6 +1073,34 @@ print("We hypothesise that high GLUCOSE and high SYSBP are associated with highe
 ```
 
 ### Fit a logistic regression model on the training set
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
  
 ```{r  heart-wsb-step-04}
@@ -743,11 +1113,141 @@ pretty_glm(hp_model)
 ```
 
 
+```{r heart-step-fit-and-eval-for-one}
+cat("### Fit Heart Models and Evaluate Logistic Regression (Threshold = 0.5)\n")
+
+
+hp_equation_lg <- DEATH ~ GLUCOSE + SYSBP + AGE              #  model equation
+heart_models   <- fit_heart_models(hp_equation_lg, hp_train) # models with  training data
+hp_results_50  <- run_heart_eval(                            # eval t@ threshold 0.5
+  model       = heart_models$hp_model,
+  threshold   = 0.5 
+)
+
+print(hp_results_50$cmtx_ft)           # confusion matrix
+print(hp_results_50$metrics_ft)        # metrics 
+```
+
+
+```{r heart-step-fit-and-eval-for-the-rest-of-them}
+cat("### Run All Heart Model Evaluations\n")
+
+
+hp_equation_lg <- DEATH ~ GLUCOSE + SYSBP + AGE
+heart_models   <- fit_heart_models(hp_equation_lg, hp_train)
+
+# GLM with multiple thresholds
+results_GLM_10  <- run_heart_eval(heart_models$hp_model,       0.10)
+results_GLM_25  <- run_heart_eval(heart_models$hp_model,       0.25)
+results_GLM_50  <- run_heart_eval(heart_models$hp_model,       0.50) #**
+results_GLM_75  <- run_heart_eval(heart_models$hp_model,       0.75)
+results_GLM_90  <- run_heart_eval(heart_models$hp_model,       0.90)
+results_QDA_50  <- run_heart_eval(heart_models$hp_qda_model,   0.50, "QDA")
+results_TREE_50 <- run_heart_eval(heart_models$hp_tree_model,  0.50, "TREE")
+
+```
+
+
+
+```{r heart-wsb-step-15-threshold-comparison, echo=FALSE}
+cat("### Threshold Comparison: Logistic Regression Classification Performance\n")
+
+# Build a single summary data frame from all GLM threshold runs
+heart_M_threshold_df <- bind_rows(
+  results_GLM_10$metrics_df  |> mutate(Threshold = "0.25"),
+  results_GLM_50$metrics_df  |> mutate(Threshold = "0.50"),
+  results_GLM_75$metrics_df  |> mutate(Threshold = "0.75"),
+  results_GLM_90$metrics_df  |> mutate(Threshold = "0.90"),
+  results_GLM_90$metrics_df  |> mutate(Threshold = "0.90"),
+  results_QDA_50$metrics_df  |> mutate(Threshold = "0.50"),
+  results_TREE_50$metrics_df |> mutate(Threshold = "0.50")
+) |>
+  relocate(Threshold, .before = Metric) # make pretty
+
+# Format as flextable
+ft_M_threshold_summary  <- pretty_df(
+  heart_M_threshold_df, 
+  title = "Classification Performance Across Models and Thresholds"
+  )
+# Print
+print(ft_M_threshold_summary )
+
+```
+
+
+
+```{r heart-wsb-step-17-metrics-and-ft-lists, include=FALSE}
+cat("### Generate lists of heart model metrics and formatted flextables\n")
+
+# create a list of metrics_df from each model-threshold result
+heart_M_threshold_df <- list(
+  GLM_10  = results_GLM_10$metrics_df,
+  GLM_25  = results_GLM_25$metrics_df,
+  GLM_50  = results_GLM_50$metrics_df,
+  GLM_75  = results_GLM_75$metrics_df,
+  GLM_90  = results_GLM_90$metrics_df,
+  QDA_50  = results_QDA_50$metrics_df,
+  TREE_50 = results_TREE_50$metrics_df
+)
+
+# create a a list of corresponding flextables with titles
+heart_M_threshold_ft <- purrr::imap(
+  heart_M_threshold_df,
+  ~ pretty_df(.x, title = glue("{.y} Performance"))
+)
+
+
+
 ```{r wsb-step-05-model}
-# Fit a logistic regression model on training data
-# Summarize using pretty_glm
+cat("### Fit a logistic regression model and generate predictions\n")
+
+cat("### Fit a logistic regression model and generate predictions\n")
+
+# Fit logistic regression model
+hp_equation_lg <- DEATH ~ GLUCOSE + SYSBP + AGE
+hp_model <- glm(hp_equation_lg, data = hp_train, family = binomial)
+
+# Predict probabilities and classify using threshold = 0.5
+hp_pred_probs_50 <- predict(hp_model, newdata = hp_test, type = "response")
+hp_pred_class_50 <- predict_heart_classes(hp_pred_probs_50, threshold = 0.5)
+
+# Build confusion matrix and summarise
+hp_cmtx_50_tbl <- make_heart_cmtx(hp_pred_class_50, hp_actual_class)
+hp_cmtx_50_ft  <- pretty_cmtx(hp_cmtx_50_tbl, "Logistic Regression Confusion Matrix (Threshold = 0.5)")
+
+# Derive performance metrics
+hp_mtrx_50_df  <- eval_heart_cmtx(hp_cmtx_50_tbl)
+hp_mtrx_50_ft  <- pretty_df(hp_mtrx_50_df, "Logistic Regression Performance (Threshold = 0.5)")
+
+# Preview numeric result for report
+misclass_rate_50 <- hp_mtrx_50_df$Value[hp_mtrx_50_df$Metric == "Misclass Rate"]
+
+# Print both for verification (in dev mode)
+print(hp_cmtx_50_ft)
+print(hp_mtrx_50_ft)
+print(glue("Misclassification Rate: {misclass_rate_50}"))
+
+   
+```
+
+```{r wsb-step-05-eval-metrics-50}
+cat("### Evaluate and display confusion matrix and metrics at threshold 0.5\n")
+
+# 1. Predict class labels from probabilities
+h_pred_probs <- predict(h_model, newdata = h_test, type = "response")
+h_pred_class_50 <- predict_heart_classes(h_pred_probs, threshold = 0.5)
+
+
+#h_metrics_50 <- eval_heart_cmtx(h_cmtx_50)
+h_cmtx_50_tbl <- make_heart_cmtx(h_pred_class_50, hp_actual_class)
+h_cmtx_50_ft <-  pretty_cmtx(h_cmtx_50_tbl, "Logistic Regression Confusion Matrix (Threshold = 0.5)") 
+h_mtrx_50_df  <- eval_heart_cmtx(h_cmtx_50_tbl)
+h_mtrx_50_ft <-  pretty_df(h_mtrx_50_df,"Logistic Regression Performance (Threshold = 0.5)") 
+
  
-pretty_glm(hp_model)
+ 
+print(h_cmtx_50_ft)
+print(h_mtrx_50_ft)
 ```
 
 
@@ -759,42 +1259,29 @@ pretty_glm(hp_model)
 ```{r wsb-step-06}
 cat("### Compute the misclassification rate on the test set\n")
 
-# Generate predicted probabilities and classes
-hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
-hp_pred_class <- predict_classes(hp_pred_probs, threshold = 0.5)
-
-# Compute actual class labels
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
-
-# Calculate confusion matrix
-hp_cmtx <- make_conf_matrix(hp_pred_class, hp_actual_class)
-
-# Evaluate confusion matrix
-hp_metrics <- eval_conf_matrix(hp_cmtx)
-hp_mtrx_df <- summarise_metrics(hp_metrics)
-
-# Convert confusion matrix to printable data frame
-hp_cmtx_df <- as.data.frame.matrix(hp_cmtx)
-hp_cmtx_df <- cbind(Predicted = rownames(hp_cmtx_df), hp_cmtx_df)
-rownames(hp_cmtx_df) <- NULL
-
+misclass_rate_50 <- h_mtrx_50_df$Value[h_mtrx_50_df$Metric == "Misclass Rate"]
 # Print formatted summaries
-print(pretty_df(hp_cmtx_df, title = "Logistic Regression Confusion Matrix (Threshold = 0.5)"))
-print(pretty_df(hp_mtrx_df, title = "Logistic Regression Performance (Threshold = 0.5)"))
+
 ```
  
   
 ### Comment on the goodness of fit
 ```{r  heart-wsb-step-08}
-#refere to hp_mtrx_df 
+ 
+h_mtrx_50_df        # performance metrics
+h_cmtx_50_tbl       # confusion matrix
+hp_model            # the fitted GLM object
+
 ```
 
 ### Supporting numeric metrics for evaluation criteria
 
  
-```{r  heart-wsb-step-09}
-hp_pred_class_10 <- ifelse(hp_pred_probs > 0.1, 1, 0)
-hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE", "DEAD"))
+```{r heart-wsb-step-09}
+cat("### Supporting numeric metrics for evaluation criteria\n")
+
+# Predict class labels at threshold 0.1 using the standard helper
+hp_pred_class_10 <- predict_heart_classes(h_pred_probs, threshold = 0.1)
 ```
 
 ### Recompute misclassification, confusion, and visualisation for 10% threshold
@@ -803,88 +1290,88 @@ hp_pred_class_10 <- factor(hp_pred_class_10, levels = c(0, 1), labels = c("LIVE"
 
  
 ```{r wsb-step-10}
-#hp_misclass_rate_10 <- mean(hp_pred_class_10 != hp_actual_class)
-#hp_cmtx_10 = table(Predicted = h_pred_class_10, Actual = h_actual_class)
-```
+cat("### Recompute misclassification, confusion, and visualisation for 10% threshold\n")
 
-### Compare logistic regression and discriminant analysis
+# Compute misclassification rate
+hp_misclass_rate_10 <- mean(hp_pred_class_10 != hp_actual_class)
+
+# Generate confusion matrix
+hp_cmtx_10 <- make_heart_cmtx(hp_pred_class_10, hp_actual_class)
+
+# Print for verification
+cat("Misclassification Rate (10% threshold):", hp_misclass_rate_10, "\n")
+print(hp_cmtx_10)
+```
 ```{r heart-wsb-step-10.1}
+### Compare logistic regression and discriminant analysis
+### Evaluate Logistic Regression at Threshold 0.10
 cat("### Logistic Regression Evaluation (Threshold = 0.10)\n")
 
+# Reuse model, generate predicted probs
 hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
-hp_pred_class_10 <- predict_classes(hp_pred_probs, threshold = 0.10)
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
+hp_pred_class_10 <- predict_heart_classes(hp_pred_probs, threshold = 0.10)
 
-hp_cmtx_test_10 <- make_conf_matrix(hp_pred_class_10, hp_actual_class)
-hp_metrics_10 <- eval_conf_matrix(hp_cmtx_test_10)
-hp_mtrx_df_10 <- summarise_metrics(hp_metrics_10)
+# Actual class (assumed already defined earlier as hp_actual_class)
+hp_cmtx_10_tbl <- make_heart_cmtx(hp_pred_class_10, hp_actual_class)
+hp_mtrx_10_df   <- eval_heart_cmtx(hp_cmtx_10_tbl)
 
-hp_cmtx_df_10 <- as.data.frame.matrix(hp_cmtx_test_10)
-hp_cmtx_df_10 <- cbind(Predicted = rownames(hp_cmtx_df_10), hp_cmtx_df_10)
-rownames(hp_cmtx_df_10) <- NULL
+# Format and print results
+hp_cmtx_10_ft <- pretty_cmtx(hp_cmtx_10_tbl, "Confusion Matrix (Threshold = 0.10)")
+hp_mtrx_10_ft <- pretty_df(hp_mtrx_10_df, "Logistic Regression Performance (Threshold = 0.10)")
 
-print(pretty_df(hp_cmtx_df_10, title = "Confusion Matrix (Threshold = 0.10)"))
-print(pretty_df(hp_mtrx_df_10, title = "Logistic Regression Performance (Threshold = 0.10)"))
+print(hp_cmtx_10_ft)
+print(hp_mtrx_10_ft)
+
 ```
 
-### QDA Model
- 
-```{r heart-wsb-step-11}
-hp_qda_model <- qda(equation_lg, data = hp_train) 
+
 ```
+
+
 
 
  
 ### QDA Evaluation
-  a
-```{r heart-wsb-step-11.1}
+```{r heart-wsb-step-11}
 cat("### QDA Evaluation\n")
 
-# Build QDA model using labeled data
-hp_qda_model <- qda(equation_lg, data = hp_train)
+hp_qda_model <- qda(equation_lg, data = hp_train) #QDA model using labeled data
 
-# Predict posterior probabilities and classes
-qda_output <- predict(hp_qda_model, newdata = hp_test)
-hp_qda_pred_probs <- qda_output$posterior[, "DEAD"]
-hp_qda_pred_class <- predict_classes(hp_qda_pred_probs, threshold = 0.5)
+# 2. Predict posterior probabilities and convert to class labels
+hp_qda_pred_probs  <- predict(hp_qda_model, newdata = hp_test)$posterior[, "DEAD"]
+hp_qda_pred_class_50  <- predict_heart_classes(hp_qda_pred_probs, threshold = 0.5)
 
-# Define actual classes
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
+# 3. Confusion matrix and performance metrics
+hp_cmtx_qda_50   <- make_heart_cmtx(hp_qda_pred_class_50, hp_actual_class)
+hp_metrics_qda_50 <- eval_heart_cmtx(hp_cmtx_qda_50)
 
-# Confusion matrix and metrics
-hp_cmtx_qda <- make_conf_matrix(hp_qda_pred_class, hp_actual_class)
-hp_metrics_qda <- eval_conf_matrix(hp_cmtx_qda)
-hp_mtrx_df_qda <- summarise_metrics(hp_metrics_qda)
+# 4. Format both as flextables
+ft_qda_cmtx_50   <- pretty_cmtx(hp_cmtx_qda_50, "QDA Confusion Matrix")
+ft_qda_metrics_50 <- pretty_df(hp_metrics_qda_50, "QDA Model Performance")
 
-# Format confusion matrix for display
-hp_cmtx_df_qda <- as.data.frame.matrix(hp_cmtx_qda)
-hp_cmtx_df_qda <- cbind(Predicted = rownames(hp_cmtx_df_qda), hp_cmtx_df_qda)
-rownames(hp_cmtx_df_qda) <- NULL
-
-# Print results
-print(pretty_df(hp_cmtx_df_qda, title = "QDA Confusion Matrix"))
-print(pretty_df(hp_mtrx_df_qda, title = "QDA Model Performance"))
-
+# 5. Display
+#print(ft_qda_cmtx_50)
+#print(ft_qda_metrics)
 ```
+
  
 
 ### Visualise the decision boundaries of the fitted QDA model in a suitable way
  
 ```{r heart-wsb-step-12}
-print("Visualise the decision boundaries of the fitted QDA model in a suitable way.")
+cat("### Visualise the decision boundaries of the fitted QDA model in a suitable way.\n")
 
-# A simple visualisation by predicted class
-hp_qda_probs <- predict(hp_qda_model, newdata = hp_test)$posterior[, 2]
-hp_qda_pred_class <- predict_classes(hp_qda_probs, threshold = 0.5)
+# Predict posterior probabilities and classify with threshold 0.5
+hp_qda_probs <- predict(hp_qda_model, newdata = hp_test)$posterior[, "DEAD"]
+hp_qda_pred_class_50 <- predict_heart_classes(hp_qda_probs, threshold = 0.5)
 
-
-ggp_qda_boundary <- ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP, colour = hp_qda_pred_class)) +
+# Plot QDA decision regions based on test data
+ggp_qda_boundary_50 <- ggplot(hp_test, aes(x = GLUCOSE, y = SYSBP, colour = hp_qda_pred_class_50)) +
   geom_point(alpha = 0.5) +
-  labs(title = "QDA Decision Boundary (approx)", colour = "Predicted")
+  labs(title = "QDA Decision Boundary (Threshold = 0.5)", colour = "Predicted")
 
-
-
-print(ggp_qda_boundary)
+# Display
+print(ggp_qda_boundary_50)
 ```
 
 ### Identify strong risk factors and communicate results
@@ -896,66 +1383,58 @@ print(ggp_qda_boundary)
 ```{r heart-wsb-step-13}
 cat("### Fit a Tree-Based Model to the Training Set\n")
 
-# Fit classification tree to hpl_train
+# 1. Fit classification tree to hp_train
 hp_tree_model <- tree(equation_lg, data = hp_train)
 
-# Optional: Display summary of the model
+# 2. Print model summary for verification
 print(summary(hp_tree_model))
 
-# Optional: Visualise the tree
+# 3. Visualise the tree structure
 plot(hp_tree_model)
 text(hp_tree_model, pretty = 0)
-
 ```
 
 ### Tree-Based or Optional Model Evaluation
-```{r heart-wsb-step-13.1}
-cat("### Tree-Based or Optional Model Evaluation\n")
+```{r heart-wsb-step-13.2}
+cat("### Tree-Based Model Evaluation (Threshold = 0.5)\n")
 
-# Generate predicted probabilities and classes
-hp_pred_probs <- predict(hp_tree_model, newdata = hp_test, type = "vector")
-hp_pred_class <- predict_classes(hp_pred_probs[, "DEAD"], threshold = 0.5)
-hp_actual_class <- factor(hp_test$DEATH, levels = c("LIVE", "DEAD"))
+# 1. Predicted probabilities and classes
+hp_tree_probs_50 <- predict(hp_tree_model, newdata = hp_test, type = "vector")
+hp_tree_class_50 <- predict_heart_classes(hp_tree_probs_50[, "DEAD"], threshold = 0.5)
 
-# Build confusion matrix
-hp_cmtx <- make_conf_matrix(hp_pred_class, hp_actual_class)
-hp_metrics <- eval_conf_matrix(hp_cmtx)
-hp_mtrx_df <- summarise_metrics(hp_metrics)
+# 2. Confusion matrix and metrics
+hp_cmtx_tree_50 <- make_heart_cmtx(hp_tree_class_50, hp_actual_class)
+hp_metrics_tree_50 <- eval_heart_cmtx(hp_cmtx_tree_50)
 
-# Format for display
-hp_cmtx_df <- as.data.frame.matrix(hp_cmtx)
-hp_cmtx_df <- cbind(Predicted = rownames(hp_cmtx_df), hp_cmtx_df)
-rownames(hp_cmtx_df) <- NULL
+# 3. Format for display
+ft_tree_cmtx_50    <- pretty_cmtx(hp_cmtx_tree_50, "Tree-Based Model Confusion Matrix")
+ft_tree_metrics_50 <- pretty_df(hp_metrics_tree_50, "Tree-Based Model Performance")
 
-# Print both confusion matrix and metrics
-print(pretty_df(hp_cmtx_df, title = "Tree-Based Model Confusion Matrix"))
-print(pretty_df(hp_mtrx_df, title = "Tree-Based Model Performance"))
+# 4. Display both tables
+print(ft_tree_cmtx_50)
+print(ft_tree_metrics_50)
 
 ```
 
 ```{r heart-wsb-step-14}
 
 hp_pred_probs <- predict(hp_model, newdata = hp_test, type = "response")
-hp_pred_glm   <- predict_classes(hp_pred_probs, threshold = 0.5)
+hp_pred_glm_50   <- predict_heart_classes(hp_pred_probs, threshold = 0.5)
 
 qda_output   <- predict(hp_qda_model, newdata = hp_test)
-hp_pred_qda  <- predict_classes(qda_output$posterior[, "DEAD"], threshold = 0.5)
+hp_pred_qda  <- predict_heart_classes(qda_output$posterior[, "DEAD"], threshold = 0.5)
 
 
 hp_pred_probs_tree <- predict(hp_tree_model, newdata = hp_test, type = "vector")
-hp_pred_tree <- predict_classes(hp_pred_probs_tree[, "DEAD"], threshold = 0.5)
+hp_pred_tree <- predict_heart_classes(hp_pred_probs_tree[, "DEAD"], threshold = 0.5)
 
 pretty_glm(hp_model)
 pretty_qda(hp_qda_model)$equation
 pretty_model_comparison(list(
-  GLM  = list(actual = hp_actual_class, predicted = hp_pred_glm),
+  GLM  = list(actual = hp_actual_class, predicted = hp_pred_glm_50),
   QDA  = list(actual = hp_actual_class, predicted = hp_pred_qda),
   TREE = list(actual = hp_actual_class, predicted = hp_pred_tree)
 ))
-
-
-
-
 ```
 
 
@@ -971,49 +1450,55 @@ print(color_ft)
 
 ### Step 2: Clean and prepare data
 ```{r colour-wsb-step-02-clean}
-c_vars <- c("color", "r", "b")
-c_clean <- color_df |>
+# Step 2–3: Clean and Split colour data
+
+# Conversion helpers
+as_cp <- function(x) factor(x, levels = c(1, 2, 3), labels = c("RED", "GREEN", "BLUE"))
+as_c  <- function(x) as.integer(x)
+
+# Clean and encode
+c_vars   <- c("color", "r", "b")
+c_clean  <- color_df |>
   select(all_of(c_vars)) |>
-  drop_na()
+  drop_na() |>
+  mutate(color = factor(color),         # ensure it's a factor first
+         color = as_c(color))           # convert to integer for modeling
 
-c_clean <- c_clean |>
-  mutate(color = factor(color))
-```
-
-
-### Step 3: Train/test split
-```{r colour-wsb-step-03-split}
+# Stratified split
 set.seed(123)
 c_split <- initial_split(c_clean, prop = 0.8, strata = color)
 c_train <- training(c_split)
 c_test  <- testing(c_split)
 
-#c_train <- c_train |>
-#  mutate(colour = factor(color))
-#cp_test  <- c_test |>
-#  mutate(colour = factor(color))
-#cp_actual_class <- cp_test$color
+# Labeled version for display
+cp_clean <- c_clean |> mutate(color = as_cp(color))
+cp_train <- c_train |> mutate(color = as_cp(color))
+cp_test  <- c_test  |> mutate(color = as_cp(color))
+
+# For evaluation
+cp_actual_class <- cp_test$color
 ```
 
-
-### Step 4: Visualise class distribution and feature relationships
 ```{r colour-wsb-step-04-visualise}
-c_plot_dist <- ggplot(c_clean, aes(x = r, y = b, color = color)) +
-  geom_point(alpha = 0.6) + labs(title = "color Classes by R and B")
- 
-c_plot_train <- ggplot(c_train, aes(x = r, y = b, color = color)) +
-  geom_point(alpha = 0.6) + labs(title = "color train")
-c_plot_test <- ggplot(c_test, aes(x = r, y = b, color = color)) +
-  geom_point(alpha = 0.6) + labs(title = "color test")
-print(c_plot_dist)
- 
-print(c_plot_train)
-print(c_plot_test)
-print(pretty_ggplot(c_plot_dist, title = "Class Distribution: r vs b"))
- 
-print(pretty_ggplot(c_plot_train, title = "Class train: r vs b"))
-print(pretty_ggplot(c_plot_test, title = "Class test: r vs b"))
+# Step 4: Visualise class distribution and feature relationships using cp_*
+
+cp_plot_dist <- ggplot(cp_clean, aes(x = r, y = b, color = color)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Colour Class Distribution by R and B")
+
+cp_plot_train <- ggplot(cp_train, aes(x = r, y = b, color = color)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Colour Training Set")
+
+cp_plot_test <- ggplot(cp_test, aes(x = r, y = b, color = color)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Colour Test Set")
+
+print(pretty_ggplot(cp_plot_dist, title = "Class Distribution: r vs b"))
+print(pretty_ggplot(cp_plot_train, title = "Training Set: r vs b"))
+print(pretty_ggplot(cp_plot_test, title = "Test Set: r vs b"))
 ```
+
 
 
 ### Step 5: Fit logistic regression model
@@ -1039,8 +1524,8 @@ if (!is.null(list_of_df)) {
 c_actual_class <- c_test$color
 
 c_pred_glm <- predict(c_model, newdata = c_test, type = "class")
-c_cmtx_glm <- make_conf_matrix(c_pred_glm, c_actual_class)
-c_metrics_glm <- eval_conf_matrix(c_cmtx_glm)
+c_cmtx_glm <- make_heart_cmtx(c_pred_glm, c_actual_class)
+c_metrics_glm <- eval_heart_cmtx(c_cmtx_glm)
 c_mtrx_df_glm <- summarise_metrics(c_metrics_glm)
 
 print(pretty_cm(c_cmtx_glm, title = "GLM Confusion Matrix"))
@@ -1066,8 +1551,8 @@ c_qda_probs <- predict(c_qda_model, newdata = c_test)$posterior
 c_pred_qda  <- colnames(c_qda_probs)[apply(c_qda_probs, 1, which.max)]
 c_pred_qda  <- factor(c_pred_qda, levels = levels(c_actual_class))
 
-c_cmtx_qda <- make_conf_matrix(c_pred_qda, c_actual_class)
-c_metrics_qda <- eval_conf_matrix(c_cmtx_qda)
+c_cmtx_qda <- make_conf_matrx(c_pred_qda, c_actual_class)
+c_metrics_qda <- eval_heart_cmtx(c_cmtx_qda)
 c_mtrx_df_qda <- summarise_metrics(c_metrics_qda)
 
 print(pretty_cm(c_cmtx_qda, title = "QDA Confusion Matrix"))

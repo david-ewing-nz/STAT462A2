@@ -989,9 +989,9 @@ misclass_rate_50 <- h_mtrx_50_df$Value[h_mtrx_50_df$Metric == "Misclass Rate"]
 ### Comment on the goodness of fit
 ```{r  heart-wsb-step-08}
  
-h_mtrx_50_df        # performance metrics
-h_cmtx_50_tbl       # confusion matrix
-hp_model            # the fitted GLM object
+h_mtrx_50_ft       # performance metrics
+h_cmtx_50_ft       # confusion matrix
+pretty_glm(hp_model)             # the fitted GLM object
 
 ```
 
