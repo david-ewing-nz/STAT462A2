@@ -1,8 +1,11 @@
 ---
-title: "Question B: Predicting color name from RGB values, using discriminant analysis"
+title: 'Question B: Predicting color name from RGB values, using discriminant analysis'
 author: "Summer"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document: default
+  pdf_document:
+    latex_engine: xelatex
 ---
 
 ```{r Environment Set up, include=F,eval=T}
@@ -15,9 +18,7 @@ options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
 
 # Required packages
 #
-required_packages <- c("conflicted", "ggplot2", "dplyr"
-                       
-                       ) 
+required_packages <- c("conflicted", "ggplot2", "dplyr","plotly","tidyr","caret","knitr","reshape2") 
 
 # Install and load missing packages in a single step and quietly
 for (pkg in required_packages) {
@@ -32,13 +33,15 @@ conflicts_prefer(tidyr::expand);conflicts_prefer(plotly::layout);conflicts_prefe
 
 
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, width = 70, cache=FALSE)
+knitr::opts_knit$set(root.dir = getwd())
+
 ```
 
 # Common Function Set Up
 
-We will reuse some quite common functions from `Common Functions.R` to avoid redundancy, but we do implement QDA by hand.
+We will reuse some quite common functions from to avoid redundancy, but we do implement QDA by hand.
 
-```{r, include=FALSE}
+```{r split_data, include=FALSE}
 # Function to split data into training and test sets
 split_data <- function(data, train_ratio = 0.8) {
   # Set a seed for reproducibility and to minimize RAM usage
@@ -107,7 +110,7 @@ ggplot(data=df_colors_augmented, aes( r, b, label = color)) +
 
 # Solution
 
-## 1. How many classes are there in the dataset?
+## How many classes are there in the dataset?
 
 ```{r}
 classes <- df_colors_augmented %>% pull("color") %>% unique 
@@ -121,7 +124,7 @@ Therefore, there are 5 classes, which correspond to the following colors:
 classes
 ```
 
-## 2. Fit a QDA algorithm to this classification problem and visualise the decision boundaries in a suitable way.
+## Fit a QDA algorithm to this classification problem and visualise the decision boundaries in a suitable way.
 
 The general discriminant score function takes the following form:
 
@@ -136,7 +139,7 @@ For each class $X = \underline{x}|class=k$, we need to know its *mean vector(* $
 Use `split_data` function to split the dataset into a training set and a test set with the ratio of 8:2.
 
 ```{r}
-# source("CommonFunctions.R")
+# split_data is the same function in Q1. Here we just reuse it.
 df_colors <- split_data(data = df_colors_augmented,train_ratio = 0.8)
 ```
 
@@ -169,10 +172,10 @@ stat_cal <- function(category_name, df) {
   pi <- n/nrow(df)
   
   # Calculate the column means for 'r' and 'b'
-  m <- df_filtered %>% dplyr::select(r, b) %>% colMeans
+  m <- df_filtered %>% select(r, b) %>% colMeans
   
   # Calculate the covariance matrix for 'r' and 'b'
-  Sigma <- df_filtered %>% dplyr::select(r, b) %>% cov
+  Sigma <- df_filtered %>% select(r, b) %>% cov
   
   return(list(pi = pi, m = m, Sigma = Sigma))
 }
@@ -214,8 +217,8 @@ Then we define a function `delta` to calculate the delta value, given class inpu
 delta <- function(X, mean, Sigma, pi){
   X_minus_mean <- X - mean
   Sigma_inv <- solve(Sigma)
-  result <- -t(X_minus_mean) %*% Sigma_inv %*% X_minus_mean / 2 - log(det(Sigma))/2 + log(pi)
-  return(result)
+  dv <- -t(X_minus_mean) %*% Sigma_inv %*% X_minus_mean / 2 - log(det(Sigma))/2 + log(pi)
+  return(dv)
 }
 ```
 
@@ -225,11 +228,13 @@ Now, we can apply function `delta` to calculate classes' delta values of a given
 X_purple <- df_colors$train %>% filter(color == "purple") %>% select(r, b)
 X_purple_stat <- stat_cal("purple",df = df_colors$train)
 delta_purple <- apply(X_purple, 1, function(row) {
-  delta(X = as.numeric(row), # Convert row to numeric vector
+  delta(X = as.numeric(row),
         mean = X_purple_stat$m,
         Sigma = X_purple_stat$Sigma,
         pi = X_purple_stat$pi)
 })
+
+
 ```
 
 Similarly, we apply a loop function to above delta calculation process.
@@ -242,15 +247,15 @@ delta_values <- list()
 for (color in color_names) {
   # 1. Extract data for the specific color
   X_color <- df_colors$train %>% 
-    filter(color == !!color) %>%  # Use !! for variable substitution
+    filter(color == !!color) %>%  
     select(r, b)
   
   # 2. Calculate statistics
   X_color_stat <- stat_cal(color, df = df_colors$train)
   
-  # 3. Calculate discriminant values
+  # 3. Calculate discriminant values for each sample in this class
   delta_color <- apply(X_color, 1, function(row) {
-    delta(X = as.numeric(row), # Convert row to numeric vector
+    delta(X = as.numeric(row),
           mean = X_color_stat$m,
           Sigma = X_color_stat$Sigma,
           pi = X_color_stat$pi)
@@ -262,6 +267,8 @@ for (color in color_names) {
     stat = X_color_stat,
     delta = delta_color
   )
+}
+
 ```
 
 ### Visualise The Decision Boundaries
@@ -269,60 +276,299 @@ for (color in color_names) {
 Now we have stored all classes' delta values in list `delta_values` and we can call them by using `delta_values[["purple"]]$delta`. Then, we use these 5 delta values to visualise the decision boundary.
 
 ```{r}
-# Generate a grid of points for contour or tile plot
-
+# 1. Generate a 2D grid of (r, b) values to evaluate decision boundaries
 plot_grid <- expand.grid(
   r = seq(min(df_colors$train$r), max(df_colors$train$r), length.out = 100),
   b = seq(min(df_colors$train$b), max(df_colors$train$b), length.out = 100)
 )
 
-# class those points with the discriminant functions 
-plot_grid <- plot_grid %>% 
-  rowwise() %>% 
+# 2. Predict the color class for each grid point using QDA
+plot_grid <- plot_grid %>%
+  rowwise() %>%
   mutate(pred_by_hand = {
-    purple_delta <- delta_values$purple$delta
-    pink_delta <- delta_values$pink$delta
-    red_delta <- delta_values$red$delta
-    brown_delta <- delta_values$brown$delta
-    blue_delta <- delta_values$blue$delta
-    as.factor(max(purple_delta, pink_delta, red_delta, brown_delta, blue_delta))
+    # For each point (r, b), compute the discriminant score for each class
+    deltas <- sapply(color_names, function(color) {
+      delta(
+        X = c(r, b),
+        mean = delta_values[[color]]$stat$m,
+        Sigma = delta_values[[color]]$stat$Sigma,
+        pi = delta_values[[color]]$stat$pi
+      )
+    })
+    # Assign the class with the highest discriminant score
+    color_names[which.max(deltas)]
+  }) %>%
+  ungroup()
+```
+
+```{r}
+library(tidyr) 
+
+# Create a named vector that maps each class label to a representative RGB color
+color_map <- df_colors_augmented %>%
+  group_by(color) %>%
+  summarise(rgb_color = first(rgb), .groups = "drop") %>%
+  { setNames(.$rgb_color, .$color) }
+
+# Plot the QDA decision boundaries using the predicted class for each point on the grid
+ggplot(plot_grid, aes(x = r, y = b, fill = pred_by_hand)) +
+  geom_tile() +
+  scale_fill_manual(values = color_map) +
+  theme_minimal() +
+  labs(title = "QDA Decision Boundaries", fill = "Predicted Color")
+```
+
+### Testing point(200,0,200)
+
+```{r}
+# Define the test point
+test_point <- c(200, 200)  # (r = 200, b = 200)
+
+# Compute the QDA discriminant score for each color class
+test_deltas <- sapply(color_names, function(color) {
+  delta(
+    X = test_point,
+    mean = delta_values[[color]]$stat$m,
+    Sigma = delta_values[[color]]$stat$Sigma,
+    pi = delta_values[[color]]$stat$pi
+  )
+})
+
+# Get predicted class: the one with the highest delta value
+predicted_qda200 <- color_names[which.max(test_deltas)]
+predicted_qda200
+
+```
+
+### Testing on test data set
+
+```{r}
+# 定义一个函数，用于对单个样本点进行预测
+predict_qda_manual <- function(point) {
+  deltas <- sapply(color_names, function(color) {
+    delta(
+      X = point,
+      mean = delta_values[[color]]$stat$m,
+      Sigma = delta_values[[color]]$stat$Sigma,
+      pi = delta_values[[color]]$stat$pi
+    )
   })
+  # 返回最大delta对应的类别
+  return(color_names[which.max(deltas)])
+}
+
+# 对测试集中的每一行进行预测
+test_data <- df_colors$test %>% select(r,b)
+
+predicted_labels_QDA <- apply(test_data, 1, function(row) {
+  point <- c(row['r'], row['b'])
+  predict_qda_manual(point)
+})
+
+
+
+
+```
+
+## kNN-Classification
+
+### Algorithm Hypothsis
+
+Compared to the QDA method, kNN uses **Euclidean distance** to measure the similarity between sample points and test points. For a given input feature point $X=x$, we identify $x$'s $k$ nearest neighbors in the training set. The class label for the test point $x$ is determined by a majority vote among these $k$ neighbors. Specifically, we calculate the distances from $x$ to each of its $k$ neighbors and assign $x$ the label that appears most frequently among them.
+
+#### Euclidean distance
+
+```{r}
+# Calculate Euclidean distance
+euclidean_distance <- function(x1, x2) {
+  sqrt(sum((x1 - x2) ^ 2))
+}
+```
+
+#### Find Neighbors
+
+1.  **Function Purpose**: The function `find_neighbors` is designed to find the $k$ nearest neighbors for a given test sample from the training data.
+
+2.  **Distance Calculation**: The `apply` function is used to iterate over each row in the specified columns ("r" and "b") of the `train_data`, calculating the Euclidean distance between each training sample and the `test_sample`.
+
+3.  **Return Neighbors**: The `order` function is used to sort the distances and return the indices of the $k$ smallest distances, which correspond to the $k$ nearest neighbors.
+
+```{r}
+# Find k nest neighbours among train data set
+find_neighbors <- function(train_data, test_sample, k) {
+  distances <- apply(train_data[, c("r", "b")], 1, function(train_sample) {
+    euclidean_distance(train_sample, test_sample)
+  })
+  # Return the index of the minimum distance 
+  order(distances)[1:k]
+}
+```
+
+#### Voting Out Highest Frequency Lable
+
+The `get_majority_vote` function determines the most common label among the nearest neighbors.
+
+```{r}
+# get_majority_vote
+#
+# Purpose:
+# Determines the most common label among the nearest neighbors.
+#
+# Parameters:
+# - neighbors: A vector of indices representing the nearest neighbors.
+# - train_labels: A vector containing the labels of the training data.
+#
+# Returns:
+# - The label that appears most frequently among the neighbors.
+get_majority_vote <- function(neighbors, train_labels) {
+  neighbor_labels <- train_labels[neighbors]
+  # Return the most frequent label
+  names(sort(table(neighbor_labels), decreasing = TRUE))[1]
+}
+
 
 ```
 
 ```{r}
-delta_values$purple$delta
+# knn_classify
+#
+# Purpose:
+# Classifies test data using the k-Nearest Neighbors algorithm.
+#
+# Parameters:
+# - train_data: A data frame containing the training samples with features.
+# - train_labels: A vector containing the labels for the training data.
+# - test_data: A data frame containing the test samples to classify.
+# - k: The number of nearest neighbors to consider for classification.
+#
+# Returns:
+# - A vector of predicted labels for the test data.
+knn_classify <- function(train_data, train_labels, test_data, k) {
+  predictions <- sapply(1:nrow(test_data), function(i) {
+    test_sample <- test_data[i, c("r", "b")]
+    neighbors <- find_neighbors(train_data, test_sample, k)
+    get_majority_vote(neighbors, train_labels)
+  })
+  return(predictions)
+}
 
 ```
 
-Test your algorithm on `(200,0,200)`. What color is this being called by your algorithm?
+#### KNN classification model training
 
-1.  *Opportunity for showing extra effort*: Learn about kNN-*Classification*, implement it, and compare it with your QDA algorithm’s results.
+```{r}
+# Classify test data using k-Nearest Neighbors
+#
+# Assigns labels to test samples based on the training data.
+#
+# Inputs:
+# - df_colors$train: Training data with features ("r", "b") and labels.
+# - train_labels: Vector of labels for the training data.
+# - test_data: Data frame of test samples with features ("r", "b").
+# - k: Number of neighbors to consider.
+#
+# Output:
+# - knn_predictions: Predicted labels for the test data.
+knn_predictions <- knn_classify(df_colors$train, train_labels = df_colors$train$color, df_colors$test, k=10)
 
-How many classes are there in the dataset? (数据集中有多少个类？)
+```
 
--   Fit a QDA algorithm to this classification problem and visualise the decision boundaries in a suitable way. (将 QDA 算法拟合到这个分类问题，并以合适的方式可视化决策边界。)
--   Test your algorithm on (200,0,200). (在 (200,0,200) 上测试你的算法。)
--   What color is this being called by your algorithm? (你的算法将此颜色称为什么？)
--   Opportunity for showing extra effort: Learn about kNN-Classification, implement it, and compare it with your QDA algorithm’s results. (展示额外努力的机会：了解 kNN 分类，实现它，并将其与你的 QDA 算法的结果进行比较。)
+#### Test point (200,0,200)
 
-**步骤 (Steps):**
+```{r}
+# Define the test point
+test_point <- data.frame(r = 200, b = 200)
 
-1.  **确定类别数量 (Determine Number of Classes):**
-    -   English: Determine the number of distinct color classes present in the dataset.
-    -   中文: 确定数据集中存在的不同颜色类别的数量。
-2.  **拟合 QDA 模型 (Fit QDA Model):**
-    -   English: Fit a Quadratic Discriminant Analysis (QDA) algorithm to the classification problem.
-    -   中文: 将二次判别分析 (QDA) 算法拟合到分类问题上。
-3.  **可视化决策边界 (Visualize Decision Boundaries):**
-    -   English: Visualize the decision boundaries of the fitted QDA model in a suitable way.
-    -   中文: 以合适的方式可视化拟合的 QDA 模型的决策边界。
-4.  **测试算法 (Test Algorithm):**
-    -   English: Test the QDA algorithm on the input (200, 0, 200).
-    -   中文: 在输入 (200, 0, 200) 上测试 QDA 算法。
-5.  **预测颜色名称 (Predict Color Name):**
-    -   English: Determine what color name is predicted by the algorithm for the input (200, 0, 200).
-    -   中文: 确定算法对于输入 (200, 0, 200) 预测的颜色名称。
-6.  **比较 kNN (Optional):**
-    -   English: (Opportunity for extra effort) Learn about k-Nearest Neighbors (kNN) classification, implement it, and compare its performance with the QDA algorithm.
-    -   中文: （展示额外努力的机会）了解 k 最近邻 (kNN) 分类，实现它，并将其性能与 QDA 算法进行比较。
+# Find the indices of the nearest neighbors
+neighbors_indices <- find_neighbors(train_data = df_colors$train, test_sample = test_point, k=10)
+
+# Retrieve the labels of the neighbors
+neighbor_labels <- df_colors$train$color[neighbors_indices]
+
+# Perform majority voting to determine the predicted label
+predicted_knn200 <- get_majority_vote(neighbors_indices, df_colors$train$color)
+
+# Output the prediction result
+print(paste("The predicted label for point (200,0,200) is:", predicted_knn200))
+
+
+```
+
+### Model Comparision On Test Data Set
+
+#### kNN Classification Performance
+
+```{r}
+confusion_metrics_kNN <- confusionMatrix(factor(knn_predictions), factor(df_colors$test$color))
+```
+
+#### QDA Classification Performance
+
+```{r}
+confusion_metrics_QDA <- confusionMatrix(factor(predicted_labels_QDA), factor(df_colors$test$color))
+```
+
+```{r}
+# 提取指标
+cm1 <- confusion_metrics_kNN
+cm2 <- confusion_metrics_QDA
+
+metrics_df <- data.frame(
+  Metric = c("Accuracy", "Kappa", "Sensitivity", "Specificity", "Precision", "Recall", "F1"),
+  kNN = c(
+    cm1$overall['Accuracy'],
+    cm1$overall['Kappa'],
+    mean(cm1$byClass[,'Sensitivity'], na.rm = TRUE),
+    mean(cm1$byClass[,'Specificity'], na.rm = TRUE),
+    mean(cm1$byClass[,'Precision'], na.rm = TRUE),
+    mean(cm1$byClass[,'Recall'], na.rm = TRUE),
+    mean(cm1$byClass[,'F1'], na.rm = TRUE)
+  ),
+  QDA = c(
+    cm2$overall['Accuracy'],
+    cm2$overall['Kappa'],
+    mean(cm2$byClass[,'Sensitivity'], na.rm = TRUE),
+    mean(cm2$byClass[,'Specificity'], na.rm = TRUE),
+    mean(cm2$byClass[,'Precision'], na.rm = TRUE),
+    mean(cm2$byClass[,'Recall'], na.rm = TRUE),
+    mean(cm2$byClass[,'F1'], na.rm = TRUE)
+  )
+)
+
+# 输出表格
+kable(metrics_df, caption = "两个模型的性能指标对比")
+```
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# kNN 混淆矩阵数据框
+confusion_mat_kNN <- table(Predicted = knn_predictions, Actual = df_colors$test$color)
+df_kNN <- as.data.frame(confusion_mat_kNN)
+colnames(df_kNN) <- c("Predicted", "Actual", "Freq")
+
+# QDA 混淆矩阵数据框
+confusion_mat_QDA <- table(Predicted = predicted_labels_QDA, Actual = df_colors$test$color)
+df_QDA <- as.data.frame(confusion_mat_QDA)
+colnames(df_QDA) <- c("Predicted", "Actual", "Freq")
+
+# 绘图函数
+plot_confusion_heatmap <- function(df, title) {
+  ggplot(df, aes(x = Actual, y = Predicted, fill = Freq)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient(low = "white", high = "steelblue") +
+    geom_text(aes(label = Freq), color = "black", size = 4) +
+    labs(title = title, x = "Actual", y = "Predicted") +
+    theme_minimal()
+}
+
+# 显示热图
+plot_confusion_heatmap(df_kNN, "kNN Confusion Matrix Heatmap")
+
+```
+
+```{r}
+plot_confusion_heatmap(df_QDA, "QDA Confusion Matrix Heatmap")
+
+```
+
