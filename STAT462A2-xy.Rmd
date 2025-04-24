@@ -1,0 +1,218 @@
+---
+title: 
+  - "STAT462 Assignment 2 - Classification"
+author: 
+  - Xia Yu (62380486)
+  - David Ewing (82171165)
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, include = F, echo = F, eval=T}
+# Environment setup: Install and load required packages
+options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
+required_packages <- c("conflicted", "ggplot2", "dplyr", "plotly", "tidyr", "caret", "knitr", "reshape2","readr","tidyverse","skimr","pROC","MASS")
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg)
+  library(pkg, character.only = TRUE)
+}
+
+library(conflicted)
+conflicts_prefer(
+  dplyr::filter,
+  dplyr::select,
+  tidyr::expand,
+  plotly::layout,
+  pROC::auc
+)
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, width = 70, cache = FALSE)
+knitr::opts_knit$set(root.dir = getwd())
+```
+
+# Appendix - Common Functions
+
+### Function: read_csv_from_zip
+
+Unzips a specified ZIP file to read a CSV file while keeping specified columns.
+
+Usage: read_csv_from_zip(zip_filepath, csv_filename, columns_to_keep)
+
+```{r, include=T, eval=T}
+read_csv_from_zip <- function(zip_filepath, csv_filename, columns_to_keep) {
+  unzip(zip_filepath, files = csv_filename) %>%
+    read_csv() %>%
+    select(columns_to_keep)
+}
+```
+
+### Function get_csv_column_names_from_zip
+
+Extracts column names from a CSV file within a ZIP archive without reading the entire file.
+
+Usage: get_csv_column_names_from_zip(zip_filepath, csv_filename)
+
+```{r, include=T, eval=T}
+get_csv_column_names_from_zip <- function(zip_filepath, csv_filename) {
+  # 1. Extract the CSV file to a temporary directory
+  unzip(zip_filepath, files = csv_filename, exdir = tempdir())
+  temp_csv_path <- file.path(tempdir(), csv_filename)
+
+  # 2. Read the CSV file, reading only the header row (n_max = 0)
+  data <- read_csv(temp_csv_path, n_max = 0)
+
+  # 3. Get the column names
+  column_names <- names(data)
+
+  # 4. Return the column names
+  return(column_names)
+}
+```
+
+### Function: split_data
+
+Splits a dataset into training and test sets based on a specified training ratio.
+
+Usage: split_data(data, train_ratio = 0.8)
+
+```{r, include=T, eval=T}
+# Function to split data into training and test sets
+split_data <- function(data, train_ratio = 0.8) {
+  # Set a seed for reproducibility and to minimize RAM usage
+  set.seed(62380486) 
+  # validate train_ratio range
+  if (train_ratio <= 0 || train_ratio >= 1) {
+  stop("Error: train_ratio must be between 0 and 1 (exclusive).")
+}
+  # Randomly select the specified percentage of indices for the training set
+  train_ind <- sample(1:nrow(data), 
+                      size = floor(train_ratio * nrow(data)),
+                      replace = FALSE)
+  
+  # Use the remaining indices for the test set
+  test_ind <- setdiff(1:nrow(data), train_ind)
+  
+  # Create training data using the selected indices
+  train_data <- data[train_ind, , drop = FALSE]
+  rownames(train_data) <- NULL
+
+  # Create test data using the remaining indices
+  test_data <- data[test_ind, , drop = FALSE]
+  rownames(test_data) <- NULL
+  
+  # Return both training and test data as a list
+  return(list(train = train_data, test = test_data))
+}
+
+```
+
+### Function: confusion_matrix_cal
+
+Calculates the confusion matrix and misclassification rate for a classification model.
+
+Usage: confusion_matrix_cal(model = logreg.fit, test_data = sp_data\$test, threshold = 0.1, outcome_variable = "DEATH")
+
+```{r, include=T, eval=T}
+confusion_matrix_cal <- function(model=logreg.fit, test_data=sp_data$test, threshold = 0.1, outcome_variable = "DEATH") {
+  # 1. Predict probabilities (using the test set)
+  predicted_probabilities <- predict(model, newdata = test_data, type = "response")
+
+  # 3. Convert to binary classification
+  predicted_classes <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+  # 4. Calculate the confusion matrix (using the test set)
+  confusion_matrix <- table(Actual = test_data[[outcome_variable]], Predicted = predicted_classes)
+  # print(paste("------"))
+  # print(paste("threshold:",threshold))
+  # print(confusion_matrix)
+  
+  # 5. Calculate the misclassification rate
+  misclassification_rate <- (confusion_matrix[1, 2] + confusion_matrix[2, 1]) / sum(confusion_matrix)
+  # print(paste("misclassification_rate:",misclassification_rate))
+  
+  return(list(misclassification_rate = misclassification_rate, confusion_matrix = confusion_matrix))
+ }
+
+```
+
+### Function: roc_curve_plot
+
+Generates and plots the ROC curve for a classification model, and calculates the AUC.
+
+Usage: roc_curve_plot(model = logreg.fit, test_data = sp_data\$test, outcome_variable = "DEATH")
+
+```{r, include=T, eval=T}
+# ROC curve function
+roc_curve_plot <- function(model = logreg.fit, test_data = sp_data$test, outcome_variable = "DEATH") {
+  # 1. Predict probabilities
+  predicted_probabilities <- predict(model, newdata = test_data, type = "response")
+
+  # 2. Create ROC object, force direction to make x-axis consistent
+  roc_obj <- roc(test_data[[outcome_variable]], predicted_probabilities, direction = "<")
+
+  # 3. Plot ROC
+  plot(roc_obj,
+       main = "ROC Curve",
+       col = "blue",
+       lwd = 2,
+       xlab = "1 - Specificity (False Positive Rate)",
+       ylab = "Sensitivity (True Positive Rate)",
+       print.auc = TRUE,
+       auc.polygon = TRUE,
+       auc.polygon.col = "skyblue2")
+
+  return(roc_obj)
+}
+
+
+```
+
+### Function: roc_qda_curve_plot
+
+Generates and plots the ROC curve specifically for a QDA classification model, and calculates the AUC.
+
+Usage: roc_qda_curve_plot(model, test_data, outcome_variable = "DEATH")
+
+```{r}
+# Custom Function for Plotting ROC Curve of QDA Model
+roc_qda_curve_plot <- function(model, test_data, outcome_variable = "DEATH") {
+  # 1. Get Predicted Posterior Probabilities
+  predicted_probabilities <- predict(model, newdata = test_data)$posterior[, 2]  # Probability for Class 1
+
+  # 2. Create ROC Object (force consistent direction)
+  roc_obj <- roc(test_data[[outcome_variable]], predicted_probabilities, direction = "<")
+
+  # 3. Plot ROC Curve
+  plot(roc_obj,
+       main = "QDA Model - ROC Curve",
+       col = "darkgreen",
+       lwd = 2,
+       xlab = "1 - Specificity (False Positive Rate)",
+       ylab = "Sensitivity (True Positive Rate)",
+       print.auc = TRUE,
+       auc.polygon = TRUE,
+       auc.polygon.col = "lightgreen"
+  )
+
+  return(roc_obj)
+}
+
+```
+
+\newpage
+
+# Question A: Applying Logistic Regression to predict mortality from blood glucose and blood pressure
+
+```{r load-Q1, child="./Q1_summer.Rmd", eval=T}
+
+```
+
+\newpage
+
+# Question B: Predicting color name from RGB values, using discriminant analysis
+
+```{r load-Q2, child="./Q2_summer.Rmd", eval=T}
+
+```

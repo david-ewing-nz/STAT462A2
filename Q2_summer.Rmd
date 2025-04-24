@@ -1,62 +1,6 @@
----
-title: 'Question B: Predicting color name from RGB values, using discriminant analysis'
-author: 
-  - Xia Yu (62380486)
-  - David Ewing (82171165)
-date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
-output:
-  html_document: default
-  pdf_document:
-    latex_engine: xelatex
----
-
-```{r Setup, include=F,eval=T}
-# Environment setup: Install and load required packages
-options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
-required_packages <- c("conflicted", "ggplot2", "dplyr", "plotly", "tidyr", "caret", "knitr", "reshape2")
-for (pkg in required_packages) {
-  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg)
-  library(pkg, character.only = TRUE)
-}
-
-library(conflicted)
-conflicts_prefer(
-  dplyr::filter,
-  dplyr::select,
-  tidyr::expand,
-  plotly::layout,
-  pROC::auc
-)
-
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, width = 70, cache = FALSE)
-knitr::opts_knit$set(root.dir = getwd())
-```
-
-# Common Function Set Up
-
-We reused some quite common functions from Q1 to avoid redundancy, but we do implement QDA by hand.
-
-```{r split_data, include=FALSE}
-# Split data into training and test sets
-split_data <- function(data, train_ratio = 0.8) {
-  set.seed(62380486)  # For reproducibility
-  if (train_ratio <= 0 || train_ratio >= 1) {
-    stop("train_ratio must be between 0 and 1 (exclusive).")
-  }
-  train_ind <- sample(seq_len(nrow(data)), size = floor(train_ratio * nrow(data)))
-  test_ind <- setdiff(seq_len(nrow(data)), train_ind)
-  train_data <- data[train_ind, , drop = FALSE]
-  test_data <- data[test_ind, , drop = FALSE]
-  rownames(train_data) <- NULL
-  rownames(test_data) <- NULL
-  list(train = train_data, test = test_data)
-}
-
-```
+# Background Information
 
 ***In this question, you are not allowed to use*** ***any pre-implemented modules for performing discriminant analysis, but you’ll have to implement this yourself.***
-
-# Background Information
 
 Colors can be coded via their RGB (red, green, blue) value in the form `(r,g,b)`, where `r`, `g`, and `b` are integers between 00 and 255. For example, `(255,0,0)` is pure red, and `(128,200,128)` is a shade of green.
 
@@ -136,7 +80,7 @@ df_colors <- split_data(data = df_colors_augmented,train_ratio = 0.8)
 
 Later we can train our model on `df_colors$train` and test our model on `df_colors$test`.
 
-### Build up discriminant score function
+### Build Up Discriminant Score Function
 
 We have 5 classes as below:
 
@@ -263,7 +207,7 @@ for (cname in color_names) {
 
 ```
 
-### Visualise The Decision Boundaries
+### Visualise the Decision Boundaries
 
 Now we have stored all classes' delta values in the list `delta_values` and we can call them by using `delta_values[["cname"]]$delta`. Then, we use these 5 delta values to visualise the decision boundary.
 
@@ -312,7 +256,7 @@ ggplot(plot_grid, aes(x = r, y = b, fill = pred_by_hand)) +
 
 *Figure 2: The boundaries between different colors represent decision boundaries, labeled by its class name.*
 
-### Testing point(200,0,200)
+### Testing Point (200,0,200)
 
 Now, we have our decision boundaries as shown in Figure 2, and the parameters are stored in `delta_values`. If we receive an input point, which has features `r` and `b`, we can make our prediction on its color. Furthermore, we defined a function to smooth this process as below.
 
@@ -360,7 +304,7 @@ ggplot(plot_grid, aes(x = r, y = b)) +
 
 *Figure 3:* QDA Decision Boundaries with Test Point (200,0,200)
 
-### Testing on test data set (`df_colors$test)`
+### Testing On Test Data Set
 
 ```{r}
 # Define a function to predict for a single sample point
@@ -397,7 +341,7 @@ Now, we have our prediction result `predicted_labels_QDA` responding to `df_colo
 
 Compared to the QDA method, kNN uses **Euclidean distance** to measure the similarity between sample points and test points. For a given input feature point $X=x$, we identify $x$'s $k$ nearest neighbors in the training set. The class label for the test point $x$ is determined by a majority vote among these $k$ neighbors. Specifically, we calculate the distances from $x$ to each of its $k$ neighbors and assign $x$ the label that appears most frequently among them.
 
-#### Euclidean distance
+#### Euclidean Distance
 
 ```{r}
 # Calculate Euclidean distance
@@ -475,7 +419,7 @@ knn_classify <- function(train_data, train_labels, test_data, k) {
 
 ```
 
-#### KNN classification model training
+#### KNN Classification Model Training
 
 ```{r}
 # Classify test data using k-Nearest Neighbors
@@ -494,7 +438,7 @@ knn_predictions <- knn_classify(df_colors$train, train_labels = df_colors$train$
 
 ```
 
-#### Test point (200,0,200)
+#### Test Point (200,0,200)
 
 ```{r}
 # Define the test point
