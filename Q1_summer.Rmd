@@ -15,12 +15,12 @@ output:
 
 ```{r}
 # load data from dataset using common function read_csv_from_zip
-xdata <- read_csv_from_zip(zip_filepath = "./data/data_assignment_2.zip",
+data1 <- read_csv_from_zip(zip_filepath = "./data/data_assignment_2.zip",
                           csv_filename = "heart.csv",
                           columns_to_keep = c("DEATH", "GLUCOSE", "SYSBP")
                           )
 
-skim(xdata)
+skim(data1)
 ```
 
 ## Missing Data Imputing
@@ -35,24 +35,54 @@ Here, we noticed that GLUCOSE has 1440 missing value, accounting for 12.38% of t
 
 ```{r}
 # Calculate the median of the GLUCOSE variable, ignoring NA values
-glucose_median <- median(xdata$GLUCOSE, na.rm = TRUE)
+glucose_median <- median(data1$GLUCOSE, na.rm = TRUE)
 
 # Impute the missing values in GLUCOSE with the calculated median
-xdata$GLUCOSE[is.na(xdata$GLUCOSE)] <- glucose_median
+# Correct way: Assign directly to the column within the data frame
+data1$GLUCOSE[is.na(data1$GLUCOSE)] <- glucose_median
 
 # Check missing data with skim method, this time, GLUCOSE's missing shoudl count 0
-skim(xdata)
+skim(data1)
+
 ```
 
 Now our `GLUCOSE` missing data updated to `0`.
+
+## Data Normalization
+
+We normalize our input features (`xdata`) primarily for two reasons:
+
+1.  To ensure all features are on a comparable scale.
+
+2.  To enable the comparison of the magnitude of the estimated coefficients, which helps assess the relative importance of features like GLUCOSE and SYSBP in predicting DEATH.
+
+```{r}
+# 1. Separate the target variable
+target_variable1 <- data1$DEATH
+
+# 2. Scale the input features using pipes
+# Select all columns except 'DEATH', scale them, and convert the result to a data frame.
+scaled_input_features_df <- data1 %>%
+  select(-DEATH) %>% # Select all columns except DEATH
+  scale() %>%        # Scale the selected input features
+  as.data.frame()    # Convert the scaled matrix to a data frame
+
+# 3. Combine the scaled input features with the original target variable
+# Ensure row order is matched. cbind assumes matching row order if inputs are derived from the same source.
+scaled_data1 <- cbind(scaled_input_features_df, DEATH = target_variable1)
+
+# Check scaled data with skim method, this time, GLUCOSE and SYSBP should be on a comparable scale.
+skim(scaled_data1)
+```
+
+Following normalization, both `GLUCOSE` and `SYSBP` have a mean of 0 and a variance of 1.
 
 ## Data Splitting
 
 ### Q(a). Split the dataset into a training set (80% of entries) and a test set (20% of entries).
 
 ```{r}
-sp_data <- split_data(data=xdata, train_ratio = 0.8)
-sp_data
+sp_data <- split_data(data=scaled_data1, train_ratio = 0.8)
 ```
 
 # Data Visualisation
@@ -61,7 +91,7 @@ sp_data
 
 ```{r}
 
-fig <- plot_ly(xdata, x = ~GLUCOSE, y = ~SYSBP, z = ~DEATH,
+fig <- plot_ly(data1, x = ~GLUCOSE, y = ~SYSBP, z = ~DEATH,
                color = ~factor(DEATH),  # Convert DEATH to a factor for coloring
                colors = c("blue", "red"),
                marker = list(size = 2),
@@ -91,12 +121,14 @@ fig  # show figure
 
 *Figure 1. GLUCOSE, SYSBP and DEATH Relationship Exploration On 3D Space*
 
+N.B. here we plot on original scale numbers rather than scaled numbers.
+
 And we can also visualize these three variables by projecting them onto a 2D plane (a 'platform'). On this plane, a line (or lines) can serve as a decision boundary, dividing the plane into different regions. These lines represent our decision boundaries.
 
 ```{r}
 
 # 1. Create 2D scatter
-fig <- plot_ly(xdata, 
+fig <- plot_ly(data1, 
                x = ~GLUCOSE, 
                y = ~SYSBP,
                color = ~factor(DEATH),  # Convert DEATH to a factor for coloring
@@ -365,12 +397,12 @@ Now, we refit our model using all risk factors.
 ```{r}
 read_columns=c("DEATH", "SEX","TOTCHOL","AGE","SYSBP","DIABP","CURSMOKE","CIGPDAY","BMI","DIABETES","BPMEDS","HEARTRTE","GLUCOSE","educ","PREVCHD","PREVAP","PREVMI","PREVSTRK")
 
-xdata2 <- read_csv_from_zip(zip_filepath = "./data/data_assignment_2.zip",
+data2 <- read_csv_from_zip(zip_filepath = "./data/data_assignment_2.zip",
                           csv_filename = "heart.csv",
                           columns_to_keep = read_columns
                           )
  
-skim(xdata2)
+skim(data2)
 
 ```
 
@@ -411,27 +443,47 @@ fill_missing_with_median <- function(data) {
   return(data)
 }
 
-xdata3 <- fill_missing_with_median(data = xdata2)
+imputed_data2 <- fill_missing_with_median(data = data2)
 ```
 
 ```{r}
-skim(xdata3)
+skim(imputed_data2)
 ```
 
 All variable's missing data is filled up with their median now.
 
+## Data Normalization
+
+```{r}
+# 1. Separate the target variable
+target_variable2 <- imputed_data2$DEATH
+
+# 2. Scale the input features using pipes
+# Select all columns except 'DEATH', scale them, and convert the result to a data frame.
+scaled_input_features_df <- imputed_data2 %>%
+  select(-DEATH) %>% # Select all columns except DEATH
+  scale() %>%        # Scale the selected input features
+  as.data.frame()    # Convert the scaled matrix to a data frame
+
+# 3. Combine the scaled input features with the original target variable
+# Ensure row order is matched. cbind assumes matching row order if inputs are derived from the same source.
+scaled_data2 <- cbind(scaled_input_features_df, DEATH = target_variable2)
+
+# Check scaled data with skim method, this time, GLUCOSE and SYSBP should be on a comparable scale.
+skim(scaled_data2)
+```
+
 ## Data Splitting
 
 ```{r}
-sp_data2 <- split_data(data = xdata3,train_ratio = 0.8)
-sp_data2
+sp_data2 <- split_data(data = scaled_data2,train_ratio = 0.8)
 ```
 
 ## Fit Multiple Logistic Regression Model
 
 ```{r}
 # Get column names from xdata3
-variable_names <- colnames(xdata3)
+variable_names <- colnames(data2)
 
 # Remove the response variable (DEATH) if it's also in xdata3
 # Make sure DEATH is not in variable_names
@@ -487,13 +539,17 @@ kable(results_df, format = "html", row.names = FALSE)  # 或者 format = "html"
 
 ```
 
-From above table, we can infer the most important factors leading to DEATH = 1 by the rank number in table:
+Based on the table above, which ranks factors by their Estimate coefficients, we can infer the following:
 
--   `PREVSTRK`, `PREVMI`, and `DIABETES` are the top three risk factors, indicating higher probabilities of `DEATH`.
+-   `AGE` is the most influential factor, indicating a higher probability of death with increasing age.
 
--   A `SEX` value of 1 (Male) indicates a higher risk than a `SEX` value of 2 (Female). This aligns with the general observation that women tend to live longer than men.
+-   `SEX` is the second most influential factor. Male sex appears to be associated with a higher risk compared to female sex.
 
--   Three acquired traits, rather than genetically determined ones, appear to influence motality. Smoking(`CURSMOKE` and `CIGPDAY`) reduce lifespan while education( `educ` ) extends it.
+-   Several acquired factors, rather than purely genetically determined ones, also appear to influence mortality. Smoking habits (represented by `CURSMOKE` and `CIGPDAY`) are associated with a higher risk of death, while education (`educ`) is associated with a lower risk.
+
+-   Based on this dataset, `SYSBP` has a greater influential effect on DEATH than `GLUCOSE`.This comparison is made in terms of log-odds, rather than probabilities. The link between log-odds and probabilities is nonlinear.
+
+-   This comparison is made in terms of **log-odds**, rather than **probabilities**. The link between log-odds and probabilities is nonlinear.
 
 ## Apply Trained Model to Test Dataset
 
