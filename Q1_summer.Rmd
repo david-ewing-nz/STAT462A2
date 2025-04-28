@@ -50,11 +50,13 @@ Now our `GLUCOSE` missing data updated to `0`.
 
 ## Data Normalization
 
-We normalize our input features (`xdata`) primarily for two reasons:
+We normalize our input features (`data1`) primarily for two reasons:
 
 1.  To ensure all features are on a comparable scale.
 
 2.  To enable the comparison of the magnitude of the estimated coefficients, which helps assess the relative importance of features like GLUCOSE and SYSBP in predicting DEATH.
+
+3.  Multicollinearity: If there are highly correlated features in the model, multicollinearity can lead to unstable coefficient estimates, making their magnitude and sign difficult to interpret. In such cases, the coefficient of a single feature may not accurately reflect its independent effect.
 
 ```{r}
 # 1. Separate the target variable

@@ -85,7 +85,7 @@ Later we can train our model on `df_colors$train` and test our model on `df_colo
 We have 5 classes as below:
 
 ```{r}
-df_colors$train %>% pull("color") %>% unique
+unique(df_colors$train$color)
 ```
 
 To improve the efficiency of calculation process, we define a function `stat_cal` to solve $m_k, C_k, \pi_k$.
@@ -123,10 +123,12 @@ For all 5 classes, we applied a `sapply` function to above calculation process t
 
 ```{r}
 color_stat_values <- sapply(color_names, function(color) {
-  stat_cal(color, df = df_colors$train)
+  stat_cal(category_name = color, df = df_colors$train)
 })
 
 color_stat_values
+# we can call the value of purple by follow code
+# color_stat_values["pi","purple"]
 ```
 
 N.B. We can verify the statistic values above by summing the `pi` values; the sum should equal 1. `pi` represents the prior probability, indicated by each class's frequency over all events.
@@ -170,7 +172,6 @@ delta_purple <- apply(X_purple, 1, function(row) {
         pi = X_purple_stat$pi) # each row returns to a dv value, so delta_purple is a col
 })
 
-
 ```
 
 Similarly, we applied a loop function to above delta calculation process.
@@ -187,10 +188,10 @@ for (cname in color_names) {
     select(r, b)
   
   # 2. Calculate statistics
-  X_color_stat <- stat_cal(cname, df = df_colors$train)
+  X_color_stat <- stat_cal(category_name = cname, df = df_colors$train)
   
   # 3. Calculate discriminant values for each sample in this class
-  delta_color <- apply(X_color, 1, function(row) {
+  delta_color <- apply(X_color, MARGIN = 1, function(row) {
     delta(X = as.numeric(row),
           mean = X_color_stat$m,
           Sigma = X_color_stat$Sigma,
@@ -214,14 +215,15 @@ Now we have stored all classes' delta values in the list `delta_values` and we c
 ```{r}
 # 1. Generate a 2D grid of (r, b) values to evaluate decision boundaries
 plot_grid <- expand.grid(
-  r = seq(min(df_colors$train$r), max(df_colors$train$r), length.out = 100),
-  b = seq(min(df_colors$train$b), max(df_colors$train$b), length.out = 100)
+  r = seq(min(df_colors$test$r), max(df_colors$test$r), length.out = 100),
+  b = seq(min(df_colors$test$b), max(df_colors$test$b), length.out = 100)
 )
 
 # 2. Predict the color class for each grid point using QDA
 plot_grid <- plot_grid %>%
   rowwise() %>%
-  mutate(pred_by_hand = {
+  mutate(
+    pred_by_hand = {
     # For each point (r, b), compute the discriminant score for each class
     deltas <- sapply(color_names, function(color) {
       delta(
@@ -237,24 +239,30 @@ plot_grid <- plot_grid %>%
   ungroup()
 ```
 
-```{r}
-# Create a named vector that maps each class label to a representative RGB color
-color_map <- df_colors$train %>%
-  group_by(color) %>%
-  summarise(rgb_color = first(rgb), .groups = "drop") %>%
-  { setNames(.$rgb_color, .$color) }
+*Figure 2: The boundaries between different colors represent decision boundaries, labeled by its class name.*
 
-# Plot the QDA decision boundaries using the predicted class for each point on the grid
-ggplot(plot_grid, aes(x = r, y = b, fill = pred_by_hand)) +
-  geom_tile() +
-  scale_fill_manual(values = color_map) +
-  theme_minimal() +
-  labs(title = "QDA Decision Boundaries on df_color$train data set", fill = "Predicted Color")
+```{r}
+# Plot the test set with predicted classes and decision boundary
+ggplot() +
+  # separate by background color (predicted class regions)
+  geom_tile(data = plot_grid,
+            aes(x = r, y = b, fill = pred_by_hand), # Map predicted class to fill
+            alpha = 0.3) + # Set transparency to see points below
+  # actual classification (test points)
+  geom_point(data = df_colors$test,
+             aes(x = r, y = b, shape = color), # Map actual class to shape
+             size = 2, 
+             alpha = 0.9) +
+  # Add labels and theme settings
+  labs(title = "QDA Predictions on Test Set with Decision Boundary",
+       x = "r",
+       y = "b",
+       fill = "Predicted Color", # Fill legend title
+       shape = "Actual Color") + # Shape legend title
+  theme_minimal()
 
 
 ```
-
-*Figure 2: The boundaries between different colors represent decision boundaries, labeled by its class name.*
 
 ### Testing Point (200,0,200)
 
@@ -290,7 +298,6 @@ test_point_df <- data.frame(
 
 ggplot(plot_grid, aes(x = r, y = b)) +
   geom_tile(aes(fill = pred_by_hand)) +  
-  scale_fill_manual(values = color_map) +
   geom_point(data = test_point_df, aes(x = r, y = b), 
              shape = 8, size = 4, color = "white", stroke = 1.5) +  
   geom_text(data = test_point_df, aes(x = r, y = b, label = label),
@@ -337,6 +344,19 @@ Now, we have our prediction result `predicted_labels_QDA` responding to `df_colo
 
 ## kNN-Classification
 
+While preparing to train our custom kNN algorithm, we observed that R offers a direct training method (as shown below), which suggested an optimal $k$ of 1. This result appears unusual. Further testing of the kNN method with different random seeds revealed that the optimal \$k\$ value varied based on how the training data set was partitioned.
+
+```{r}
+# Train kNN model with trainControl
+control <- trainControl(method = "cv", number = 10) # K-Fold Cross-Validation
+knn_model <- train(color~ r + b,
+data = df_colors$train,
+method = "knn",
+trControl = control,
+tuneGrid = data.frame(k = 1:20))
+print(knn_model)
+```
+
 ### Algorithm Hypothsis
 
 Compared to the QDA method, kNN uses **Euclidean distance** to measure the similarity between sample points and test points. For a given input feature point $X=x$, we identify $x$'s $k$ nearest neighbors in the training set. The class label for the test point $x$ is determined by a majority vote among these $k$ neighbors. Specifically, we calculate the distances from $x$ to each of its $k$ neighbors and assign $x$ the label that appears most frequently among them.
@@ -369,7 +389,7 @@ find_neighbors <- function(train_data, test_sample, k) {
 }
 ```
 
-#### Voting Out Highest Frequency Lable
+#### Voting Out Highest Frequency Label
 
 The `get_majority_vote` function determines the most common label among the nearest neighbors.
 
@@ -459,9 +479,9 @@ print(paste("The predicted label for point (200,0,200) is:", predicted_knn200))
 
 ```
 
-This is not very hard to understand that kNN's prediction is pink rather than QDA's prediction, which is purple. We can tell from Figure 3, "QDA Decision Boundaries with Test Point (200, 0, 200)," that the point (200, 200) is almost standing on the decision boundary between purple and pink.
+It is relatively straightforward to understand why kNN predicts the point as pink, unlike QDA which predicts it as purple. As shown in Figure 3, titled "QDA Decision Boundaries with Test Point (200, 0, 200)," the point (200, 200) is located very close to the decision boundary between the purple and pink regions.
 
-The kNN method determines the result based on the color of the k(here our k=10) nearest points, as shown in the bright area of the figure below. We can see that the frequency of pink is obviously higher than that of purple. That's how kNN classified point (200, 200) into pink rather than purple.
+The kNN method determines the classification based on the majority class among its k (here we set k=10 in our by-hand kNN algorithm ) nearest neighbors, as illustrated by the bright area in the figure below. We can observe that the number of pink neighbors is clearly higher than the number of purple neighbors. This is why kNN classifies the point (200, 200) as pink, whereas QDA classifies it as purple.
 
 ![](images/clipboard-2110257629.png)
 
@@ -540,4 +560,4 @@ plot_confusion_heatmap(df_kNN, "kNN Confusion Matrix Heatmap")
 plot_confusion_heatmap(df_QDA, "QDA Confusion Matrix Heatmap")
 ```
 
-In conclusion, our QDA model performs slightly better than the kNN model.
+In conclusion, our QDA model performs slightly better than the kNN model when $k=10$.
