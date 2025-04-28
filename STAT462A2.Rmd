@@ -206,7 +206,7 @@ roc_qda_curve_plot <- function(model, test_data, outcome_variable = "DEATH") {
 
 # Question A: Applying Logistic Regression to predict mortality from blood glucose and blood pressure
 
-```{r load-Q1, child="./Q1_summer.Rmd", eval=T}
+```{r load-Q1, child="./Q1.Rmd", eval=T}
 
 ```
 
@@ -214,6 +214,6 @@ roc_qda_curve_plot <- function(model, test_data, outcome_variable = "DEATH") {
 
 # Question B: Predicting color name from RGB values, using discriminant analysis
 
-```{r load-Q2, child="./Q2_summer.Rmd", eval=T}
+```{r load-Q2, child="./Q2.Rmd", eval=T}
 
 ```
