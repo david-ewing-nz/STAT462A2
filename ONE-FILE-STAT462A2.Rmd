@@ -1,0 +1,1378 @@
+---
+title: 
+  - "STAT462 Assignment 2 - Classification"
+author: 
+  - Xia Yu (62380486)
+  - David Ewing (82171165)
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, include = F, echo = F, eval=T}
+# Environment setup: Install and load required packages
+options(repos = c(CRAN = "https://cran.stat.auckland.ac.nz/"))
+required_packages <- c("conflicted", "ggplot2", "dplyr", "plotly", "tidyr", "caret", "knitr", "reshape2","readr","tidyverse","skimr","pROC","MASS")
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg)
+  library(pkg, character.only = TRUE)
+}
+
+library(conflicted)
+conflicts_prefer(
+  dplyr::filter,
+  dplyr::select,
+  tidyr::expand,
+  plotly::layout,
+  pROC::auc
+)
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, width = 70, cache = FALSE)
+knitr::opts_knit$set(root.dir = getwd())
+```
+
+# Appendix - Common Functions
+
+### Function: read_csv_from_zip
+
+Unzips a specified ZIP file to read a CSV file while keeping specified columns.
+
+Usage: read_csv_from_zip(zip_filepath, csv_filename, columns_to_keep)
+
+```{r, include=T, eval=T}
+read_csv_from_zip <- function(zip_filepath, csv_filename, columns_to_keep = NULL) {
+  unzip(zip_filepath, files = csv_filename) %>%
+    read_csv() %>%
+    select(columns_to_keep)
+}
+
+read_csv_from_zip <- function(zip_filepath, csv_filename, columns_to_keep) {
+   
+  if (!dir.exists("./data/unzipped")) {
+    dir.create("./data/unzipped", recursive = TRUE)
+  } 
+  #  CSV into './data/unzipped/'
+  unzip(zip_filepath, files = csv_filename, exdir = "./data/unzipped", overwrite = TRUE)
+  # Read the file
+  data <- read_csv(file.path("./data/unzipped", csv_filename))
+  
+  if (!is.null(columns_to_keep)) {
+    data <- select(data, all_of(columns_to_keep))
+  }
+  
+  return(data)
+}
+
+```
+
+### Function get_csv_column_names_from_zip
+
+Extracts column names from a CSV file within a ZIP archive without reading the entire file.
+
+Usage: get_csv_column_names_from_zip(zip_filepath, csv_filename)
+
+```{r, include=T, eval=T}
+get_csv_column_names_from_zip <- function(zip_filepath, csv_filename) {
+  # 1. Extract the CSV file to a temporary directory
+  unzip(zip_filepath, files = csv_filename, exdir = tempdir())
+  temp_csv_path <- file.path(tempdir(), csv_filename)
+
+  # 2. Read the CSV file, reading only the header row (n_max = 0)
+  data <- read_csv(temp_csv_path, n_max = 0)
+
+  # 3. Get the column names
+  column_names <- names(data)
+
+  # 4. Return the column names
+  return(column_names)
+}
+```
+
+### Function: split_data
+
+Splits a dataset into training and test sets based on a specified training ratio.
+
+Usage: split_data(data, train_ratio = 0.8)
+
+```{r, include=T, eval=T}
+# Function to split data into training and test sets
+split_data <- function(data, train_ratio = 0.8) {
+  # Set a seed for reproducibility and to minimize RAM usage
+  set.seed(62380486)
+  # set.seed(2)
+  # validate train_ratio range
+  if (train_ratio <= 0 || train_ratio >= 1) {
+  stop("Error: train_ratio must be between 0 and 1 (exclusive).")
+}
+  # Randomly select the specified percentage of indices for the training set
+  train_ind <- sample(1:nrow(data), 
+                      size = floor(train_ratio * nrow(data)),
+                      replace = FALSE)
+  
+  # Use the remaining indices for the test set
+  test_ind <- setdiff(1:nrow(data), train_ind)
+  
+  # Create training data using the selected indices
+  train_data <- data[train_ind, , drop = FALSE]
+  rownames(train_data) <- NULL
+
+  # Create test data using the remaining indices
+  test_data <- data[test_ind, , drop = FALSE]
+  rownames(test_data) <- NULL
+  
+  # Return both training and test data as a list
+  return(list(train = train_data, test = test_data))
+}
+
+```
+
+### Function: confusion_matrix_cal
+
+Calculates the confusion matrix and misclassification rate for a classification model.
+
+Usage: confusion_matrix_cal(model = logreg.fit, test_data = sp_data\$test, threshold = 0.1, outcome_variable = "DEATH")
+
+```{r, include=T, eval=T}
+confusion_matrix_cal <- function(model=logreg.fit, test_data=sp_data$test, threshold = 0.1, outcome_variable = "DEATH") {
+  # 1. Predict probabilities (using the test set)
+  predicted_probabilities <- predict(model, newdata = test_data, type = "response")
+
+  # 3. Convert to binary classification
+  predicted_classes <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+  # 4. Calculate the confusion matrix (using the test set)
+  confusion_matrix <- table(Actual = test_data[[outcome_variable]], Predicted = predicted_classes)
+  # print(paste("------"))
+  # print(paste("threshold:",threshold))
+  # print(confusion_matrix)
+  
+  # 5. Calculate the misclassification rate
+  misclassification_rate <- (confusion_matrix[1, 2] + confusion_matrix[2, 1]) / sum(confusion_matrix)
+  # print(paste("misclassification_rate:",misclassification_rate))
+  
+  return(list(misclassification_rate = misclassification_rate, confusion_matrix = confusion_matrix))
+ }
+
+```
+
+### Function: roc_curve_plot
+
+Generates and plots the ROC curve for a classification model, and calculates the AUC.
+
+Usage: roc_curve_plot(model = logreg.fit, test_data = sp_data\$test, outcome_variable = "DEATH")
+
+```{r, include=T, eval=T}
+# ROC curve function
+roc_curve_plot <- function(model = logreg.fit, test_data = sp_data$test, outcome_variable = "DEATH") {
+  # 1. Predict probabilities
+  predicted_probabilities <- predict(model, newdata = test_data, type = "response")
+
+  # 2. Create ROC object, force direction to make x-axis consistent
+  roc_obj <- roc(test_data[[outcome_variable]], predicted_probabilities, direction = "<")
+
+  # 3. Plot ROC
+  plot(roc_obj,
+       main = "ROC Curve",
+       col = "blue",
+       lwd = 2,
+       xlab = "1 - Specificity (False Positive Rate)",
+       ylab = "Sensitivity (True Positive Rate)",
+       print.auc = TRUE,
+       auc.polygon = TRUE,
+       auc.polygon.col = "skyblue2")
+
+  return(roc_obj)
+}
+
+
+```
+
+### Function: roc_qda_curve_plot
+
+Generates and plots the ROC curve specifically for a QDA classification model, and calculates the AUC.
+
+Usage: roc_qda_curve_plot(model, test_data, outcome_variable = "DEATH")
+
+```{r}
+# Custom Function for Plotting ROC Curve of QDA Model
+roc_qda_curve_plot <- function(model, test_data, outcome_variable = "DEATH") {
+  # 1. Get Predicted Posterior Probabilities
+  predicted_probabilities <- predict(model, newdata = test_data)$posterior[, 2]  # Probability for Class 1
+
+  # 2. Create ROC Object (force consistent direction)
+  roc_obj <- roc(test_data[[outcome_variable]], predicted_probabilities, direction = "<")
+
+  # 3. Plot ROC Curve
+  plot(roc_obj,
+       main = "QDA Model - ROC Curve",
+       col = "darkgreen",
+       lwd = 2,
+       xlab = "1 - Specificity (False Positive Rate)",
+       ylab = "Sensitivity (True Positive Rate)",
+       print.auc = TRUE,
+       auc.polygon = TRUE,
+       auc.polygon.col = "lightgreen"
+  )
+
+  return(roc_obj)
+}
+
+```
+
+\newpage
+
+# Question A: Applying Logistic Regression to predict mortality from blood glucose and blood pressure
+
+#```{r load-Q1, child="./Q1.Rmd", eval=T}
+
+
+
+# 1. Data Preparation
+
+## 1.1 Data Loading and Exploration
+```{r}
+# load data from dataset using common function read_csv_from_zip
+if (!dir.exists("./data/unzipped")) {
+  dir.create("./data/unzipped", recursive = TRUE)
+}
+data1 <- read_csv_from_zip(
+  zip_filepath = "./data/data_assignment_2.zip",
+  csv_filename = "heart.csv",
+  columns_to_keep = c("DEATH", "GLUCOSE", "SYSBP")
+  )
+
+skim(data1)
+```
+
+## 1.2 Data Splitting
+
+### Q(a). Split the dataset into a training set (80% of entries) and a test set (20% of entries).
+
+```{r}
+sp_data <- split_data(data=data1, train_ratio = 0.8)
+```
+
+## 1.3 Missing Value Imputation
+
+Here, we noticed that GLUCOSE has 1440 missing value, accounting for 12.38% of total rows. We are adopting a **Median Imputation** strategy after comparing below methods' defects.
+
+-   **Complete Case Deletion:** The 12.38% missing data proportion is too high, risking significant information loss and bias.
+
+-   **Regression/Classification Imputation:** Using other variables (like SYSBP and DEATH) to predict GLUCOSE introduces data leakage when DEATH is the target variable.
+
+-   **Missing Values as a Separate Category:** This approach is unsuitable for numerical features like GLUCOSE as it can distort the variable's distribution and introduce bias.
+
+N.B. To avoid data leakage, we should get median in train data set and impute median in train and test data set.
+
+```{r}
+glucose_median <- median(sp_data$train$GLUCOSE, na.rm = TRUE)
+sp_data$train$GLUCOSE[is.na(sp_data$train$GLUCOSE)] <- glucose_median
+sp_data$test$GLUCOSE[is.na(sp_data$test$GLUCOSE)] <- glucose_median
+```
+
+Now our `GLUCOSE` missing data updated to `0`.
+
+## 1.4 Data Normalization
+
+We normalize our input features (`data1`) primarily for below reasons:
+
+1.  To ensure all features are on a comparable scale.
+
+2.  To enable the comparison of the magnitude of the estimated coefficients, which helps assess the relative importance of features like GLUCOSE and SYSBP in predicting DEATH.
+
+3.  Multicollinearity: If there are highly correlated features in the model, multicollinearity can lead to unstable coefficient estimates, making their magnitude and sign difficult to interpret. In such cases, the coefficient of a single feature may not accurately reflect its independent effect.
+
+```{r}
+# 1. Separate the target variable
+target_train <- sp_data$train$DEATH
+target_test <- sp_data$test$DEATH
+
+# 2. scaled_train_data
+# Select all columns except 'DEATH', scale them, and convert the result to a data frame.
+scaled_train_features_matrix <- scale(sp_data$train %>% select(GLUCOSE, SYSBP))
+scaled_train_features <- as.data.frame(scaled_train_features_matrix)
+scaled_train_data <- scaled_train_features %>%
+  mutate(DEATH = target_train)
+skim(scaled_train_data)
+
+# 3. scaled_test_data
+scaled_test_features_matrix <- scale(
+  sp_data$test %>% select(GLUCOSE, SYSBP),
+  center = attr(scaled_train_features_matrix, "scaled:center"),
+  scale = attr(scaled_train_features_matrix, "scaled:scale")
+)
+scaled_test_features <- as.data.frame(scaled_test_features_matrix)
+scaled_test_data <- scaled_test_features %>%
+  mutate(DEATH = target_test)
+
+# Check scaled data with skim method, this time, GLUCOSE and SYSBP should be on a comparable scale.
+skim(scaled_test_data)
+```
+
+Following normalization, both `GLUCOSE` and `SYSBP` have a mean of 0 and a variance of 1.
+
+# 2. Data Visualisation
+
+### Q(b). Visualise the relationship between `DEATH` , `GLUCOSE` and `SYSBP` (s a suitable way. Form an initial hypothesis of what to look for when doing the classification.
+
+```{r}
+
+fig <- plot_ly(data1, x = ~GLUCOSE, y = ~SYSBP, z = ~DEATH,
+               color = ~factor(DEATH),  # Convert DEATH to a factor for coloring
+               colors = c("blue", "red"),
+               marker = list(size = 2),
+               symbol = "DEATH",
+               alpha = 0.45,
+               type = "scatter3d",
+               mode = "markers",
+              # Add mouse hover text
+               text = ~paste("GLUCOSE:", GLUCOSE, "<br>SYSBP:", SYSBP, "<br>DEATH:", DEATH)
+               ) 
+
+
+fig <- fig %>% layout(
+  title = list(
+    text = "GLUCOSE, SYSBP and DEATH Relationship Exploration On 3D Space" 
+  ),
+  scene = list(
+    xaxis = list(title = "GLUCOSE"),
+    yaxis = list(title = "SYSBP"),
+    zaxis = list(title = "DEATH")
+  ))
+
+fig  # show figure
+
+
+```
+
+*Figure 1. GLUCOSE, SYSBP and DEATH Relationship Exploration On 3D Space*
+
+N.B. here we plot on original scale numbers rather than scaled numbers.
+
+And we can also visualize these three variables by projecting them onto a 2D plane (a 'platform'). On this plane, a line (or lines) can serve as a decision boundary, dividing the plane into different regions. These lines represent our decision boundaries.
+
+```{r}
+
+# 1. Create 2D scatter
+fig <- plot_ly(data1, 
+               x = ~GLUCOSE, 
+               y = ~SYSBP,
+               color = ~factor(DEATH),  # Convert DEATH to a factor for coloring
+               colors = c("blue", "red"),
+               marker = list(size = 5, opacity = 0.7),
+               type = "scatter",
+               mode = "markers",
+               # Add mouse hover text
+               text = ~paste("GLUCOSE:", GLUCOSE, "<br>SYSBP:", SYSBP, "<br>DEATH:", DEATH),
+               hoverinfo = "text"  # Only show hover text
+) 
+
+# 2. add layout
+fig <- fig %>% layout(
+  title = "GLUCOSE, SYSBP and DEATH Relationship Exploration On 2D Plane",
+  xaxis = list(title = "GLUCOSE"),
+  yaxis = list(title = "SYSBP"),
+  legend = list(title = "DEATH")
+)
+
+# 3. show figure
+fig 
+
+```
+
+*Figure 2. GLUCOSE, SYSBP and DEATH Relationship Exploration On 2D Plane*
+
+# 3. Binary Logistic Regression Model
+
+## 3.1 Hypothesis Formation
+
+We will use a function to apply on `GLUCOSE` and `SYSBP` to get the probability of *`DEATH`* being "1" (or "0", they are almost the same since it's a binary situation), this can be written as $$Pr(G\ = 1|X)$$
+
+where $X$ is a vector, containing features $x_1: GLUCOSE, x_2: SYSBP$; $G$ represents the output binary variable `DEATH`.
+
+To make sure the function will always return the result between 0 and 1, we can use the following `sigmoid` function to estimate the probability of being class 1:
+
+$$g_1(x) =  \mathbb P(G = 1| X=x) = \frac{\exp(b_0 + b_1x_1 + b_2x_2)}{1 + \exp(b_0 + b_1 x + b_2x_2)} $$ so the probability of being class 0 would be: $$ g_0(x) = \mathbb P(G = 0| X=x)   = \frac{1}{1 + \exp(b_0 + b_1 x + b_2x_2)}  $$
+
+The problem now is to find the optimal combination of `b0`, `b1` and `b2` from the training set.
+
+## 3.2 Binary Logistic Regression Model Fitting
+
+### Q(c). On the training set, fit a (multiple) logistic regression model.
+
+*N.B. In this question, you are allowed to use `glm`.*
+
+```{r}
+logreg.fit <- glm(
+    formula = DEATH ~ GLUCOSE + SYSBP,
+    family = binomial,
+    data = scaled_train_data, 
+    na.action = na.omit,
+    model = TRUE,
+    method = "glm.fit",
+    x = FALSE,
+    y = TRUE,
+    contrasts = NULL
+)
+summary(logreg.fit)
+
+
+```
+
+So we get the fitted coefficients in function: $$g_1(x) =  \mathbb P(G = 1| X=x) = \frac{\exp(b_0 + b_1x_1 + b_2x_2)}{1 + \exp(b_0 + b_1 x + b_2x_2)} $$
+
+```{r}
+logreg.fit$coefficients
+```
+
+## 3.3 Model Prediction and Evaluation
+
+### Q(c).ii Compute the confusion matrix on the test set
+
+### Q(c).i Compute the misclassification rates on the test set
+
+```{r}
+# Predict probabilities on test data
+confusion_matrix_cal(model = logreg.fit, test_data=scaled_test_data,threshold = 0.5)
+```
+
+## 3.4 Visualization of Decision Boundary
+
+### Q(c).iii Visualise your fitted classification models suitable
+
+```{r}
+# 1. Create a grid to cover the range of GLUCOSE and SYSBP
+glucose_range <- seq(min(scaled_train_data$GLUCOSE, na.rm = TRUE),
+                     max(scaled_train_data$GLUCOSE, na.rm = TRUE),
+                     length.out = 50)
+sysbp_range <- seq(min(scaled_train_data$SYSBP, na.rm = TRUE),
+                   max(scaled_train_data$SYSBP, na.rm = TRUE),
+                   length.out = 50)
+grid <- expand.grid(GLUCOSE = glucose_range, SYSBP = sysbp_range)
+
+# 2. Use the model to predict probabilities on the grid
+grid$predicted_probability <- predict(logreg.fit, newdata = grid, type = "response")
+
+# 3. Convert the predicted probabilities to a matrix
+probability_matrix <- matrix(grid$predicted_probability,
+                             nrow = length(glucose_range),
+                             ncol = length(sysbp_range)
+                             )
+
+# 4. Create a 2D contour plot
+fig <- plot_ly(
+  x = glucose_range,
+  y = sysbp_range,
+  z = probability_matrix,
+  type = "contour",
+  contours = list(
+    showlabels = TRUE,
+    labelfont = list(
+      size = 12,
+      color = "black"
+    ),
+    start = 0,
+    end = 1,
+    size = 0.1
+  )
+) %>%
+  layout(
+    title = "Decision Boundary Visualization",
+    xaxis = list(title = "GLUCOSE(scaled)"),
+    yaxis = list(title = "SYSBP(scaled)")
+  )
+
+# 5. Add the test data points, using DEATH as color and hover text
+fig <- fig %>% add_trace(
+  data = scaled_test_data,
+  x = ~GLUCOSE,
+  y = ~SYSBP,
+  type = "scatter",
+  mode = "markers",
+  marker = list(
+    size = 5,
+    color = ifelse(scaled_test_data$DEATH == 1, "red", "blue"),
+    opacity = 0.8
+  ),
+  text = ~ifelse(DEATH == 1, "DEATH=1", "DEATH=0"),  # Set hover text
+  hoverinfo = "text",  # Only show hover text
+  name = "Test Data"
+)
+
+# 6. Add legend (optional, can adjust position)
+fig <- fig %>% layout(
+  showlegend = TRUE,
+  legend = list(
+    x = 0.85,  # x coordinate of the legend (0-1)
+    y = 0.85   # y coordinate of the legend (0-1)
+  )
+)
+
+# 7. Show the plot
+fig
+```
+
+### Q(c).iii Make a comment or observation regarding goodness of fit
+
+-   Dark blue indicates a low probability of DEATH (approaching 0), whereas yellow in the upper right indicates a high probability of DEATH (approaching 1).
+
+-   These lines are equiprobability curves that delineate the area into chromatic regions. A consistent color within a region signifies a uniform probability of DEATH.
+
+-   There's a concentration of observations in the lower left, with a clear shift towards more red observations (DEATH = 1) in the upper right.
+
+-   The graph's red and blue points originate from the test dataset, and the decision boundary is determined solely by the training dataset.
+
+## 3.5 Adjust Threshold for Public Health Focus
+
+### *Q(d). Opportunities for showing extra effort:*
+
+### *Q(d1).* For public health purposes it is more important to catch *positives*, i.e. potential mortality risks, even if they end up not eventuating. In other words, false negatives are more dangerous than false positives. In order to address this problem, we can change the threshold at which an patient is classified as being “risky”: Instead of setting the decision boundary at probability $p=50\%$, we classify a customer as “risky” (i.e., we predict DEATH) if the risk of them dying is higher than $10\%$. Modify your logistic regression to do this, and repeat the tasks of question c).
+
+In order to make these process more smoothly, we define a function `confusion_matrix_cal` (refer to chapter *Appendix - Common Functions*) to deal with the parameter `threshold` and other optional `parameters`.
+
+```{r}
+# threshold = 0.1
+confusion_matrix_cal(model=logreg.fit, test_data=scaled_test_data, threshold = 0.1, outcome_variable = "DEATH")
+
+# threshold = 0.5
+confusion_matrix_cal(model=logreg.fit, test_data=scaled_test_data, threshold = 0.5, outcome_variable = "DEATH")
+```
+
+## 3.6 Quadratic Discriminant Analysis (QDA) Model
+
+We can fit a QDA model responding to this question and measure its performance on test data set.
+
+```{r}
+# Train QDA model
+model_qda <- qda(DEATH ~ GLUCOSE + SYSBP, data = scaled_train_data)
+# Predict using QDA
+probs_qda <- predict(model_qda, newdata = scaled_test_data)$class
+# Confusion matrix for QDA
+confusionMatrix(data = as.factor(probs_qda),
+                reference = as.factor(scaled_test_data$DEATH )
+                )
+```
+
+The confusion matrix summarizes the QDA model's classification performance on the test set. It shows how well the model distinguishes between the two classes (DEATH = 0 and 1). The overall accuracy reflects the proportion of correct predictions. Sensitivity (or Recall) indicates the model's ability to correctly identify individuals at risk (DEATH = 1), while Specificity measures how well it avoids false alarms (predicting death when it's not). Precision shows the proportion of predicted deaths that are actual deaths, highlighting the model’s reliability in positive predictions.
+
+## 3.7 ROC Curve Comparison: Logistic Regression vs QDA
+
+### Q(d2). Compare the performance of logistic regression and discriminant analysis on this classification problem.
+
+We can use the ROC curve and AUC to measure the performance of different models. In this case, our focus is on the false negative (FN) value (predicting survival (DEATH = 0) but the patient actually died (DEATH = 1)).
+
+The overall performance of the classifier is given by the area under the curve (AUC). The larger the AUC, the better the classifier.(Lecture Week 5 - Classification and Logistic Regression STAT 462 2025-S1, page 25, Thomas Li, University of Canterbury)
+
+N.B. `roc_curve_plot` function refers chapter *Appendix - Common Functions*.
+
+```{r}
+# Model Probability Prediction
+logreg_probs <- predict(logreg.fit, newdata = scaled_test_data, type = "response")
+qda_probs <- predict(model_qda, newdata = scaled_test_data)$posterior[, 2]
+
+# Build ROC Objects
+roc_logreg <- roc(scaled_test_data$DEATH, logreg_probs, direction = "<")
+roc_qda <- roc(scaled_test_data$DEATH, qda_probs, direction = "<")
+
+# Plotting
+plot(roc_logreg,
+     col = "blue", lwd = 2,
+     main = "ROC Curve Comparison: Logistic vs QDA",
+     xlab = "1 - Specificity (False Positive Rate)",
+     ylab = "Sensitivity (True Positive Rate)")
+
+lines(roc_qda, col = "darkgreen", lwd = 2)
+
+legend("bottomright",
+       legend = c(sprintf("Logistic (AUC = %.3f)", auc(roc_logreg)),
+                  sprintf("QDA (AUC = %.3f)", auc(roc_qda))),
+       col = c("blue", "darkgreen"), lwd = 2)
+
+
+
+
+```
+
+# 4. Q(d3). Identify strong risk factors from this dataset and communicate your results.
+
+By expanding our $g1​(x)$ and $g2​(x)$ functions from a binary model to a multiple-class model, we can incorporate more risk factors into our classification fitting.
+
+$$g_1(x) =  \mathbb P(G = 1| X=x) = \frac{\exp(b_0 + b_1x_1 + b_2x_2 + ... + b_ix_i)}{1 + \exp(b_0 + b_1 x + b_2x_2 + ... + b_ix_i)} $$
+
+$$ g_0(x) = \mathbb P(G = 0| X=x)   = \frac{1}{1 + \exp(b_0 + b_1 x + b_2x_2 + ... + b_ix_i)}  $$
+
+where, $x_i$ represents different risk factor in our dataset, refers to this documentation: `FHS_Teaching_Longitudinal_Data_Documentation_2021a.pdf`.
+
+Now, we refit our model using all risk factors.
+
+## 4.1 Load Data and DEA Check
+
+```{r}
+selected_columns <- c("DEATH", "SEX", "TOTCHOL", "AGE", "SYSBP", "DIABP",
+                      "CURSMOKE", "CIGPDAY", "BMI", "DIABETES", "BPMEDS",
+                      "HEARTRTE", "GLUCOSE", "educ", "PREVCHD", "PREVAP",
+                      "PREVMI", "PREVSTRK")
+
+data2 <- read_csv_from_zip(
+  zip_filepath = "./data/data_assignment_2.zip",
+  csv_filename = "heart.csv",
+  columns_to_keep = selected_columns
+)
+
+skim(data2)
+
+```
+
+## 4.2 Data Splitting
+
+```{r}
+sp_data2 <- split_data(data = data2, train_ratio = 0.8)
+```
+
+## 4.3 Missing Data Imputing
+
+```{r}
+# Function for median imputation based on training set medians
+impute_train_test_with_train_median <- function(data_list) {
+  train_data <- data_list$train
+  test_data <- data_list$test
+  
+  numeric_cols <- sapply(train_data, is.numeric)
+  numeric_col_names <- names(train_data)[numeric_cols]
+  
+  medians <- sapply(numeric_col_names, function(col) median(train_data[[col]], na.rm = TRUE))
+  
+  for (col in names(medians)) {
+    if (!is.na(medians[[col]])) {
+      train_data[[col]][is.na(train_data[[col]])] <- medians[[col]]
+      test_data[[col]][is.na(test_data[[col]])] <- medians[[col]]
+    }
+  }
+  
+  return(list(train = train_data, test = test_data))
+}
+
+# Apply imputation
+imputed_data2 <- impute_train_test_with_train_median(sp_data2)
+skim(imputed_data2$train)
+skim(imputed_data2$test)
+```
+
+All variable's missing data is filled up with their median now.
+
+## 4.4 Data Normalization
+
+```{r}
+# Separate target variable
+target_train2 <- imputed_data2$train$DEATH
+target_test2 <- imputed_data2$test$DEATH
+
+# Scale features for training set
+scaled_train_features_matrix2 <- scale(imputed_data2$train %>% select(-DEATH))
+scaled_train_features2 <- as.data.frame(scaled_train_features_matrix2)
+scaled_train_data2 <- scaled_train_features2 %>%
+  mutate(DEATH = target_train2)
+
+# Scale features for testing set using training statistics
+scaled_test_features_matrix2 <- scale(
+  imputed_data2$test %>% select(-DEATH),
+  center = attr(scaled_train_features_matrix2, "scaled:center"),
+  scale = attr(scaled_train_features_matrix2, "scaled:scale")
+)
+scaled_test_features2 <- as.data.frame(scaled_test_features_matrix2)
+scaled_test_data2 <- scaled_test_features2 %>%
+  mutate(DEATH = target_test2)
+```
+
+## 4.5 Multiple Logistic Regression Model Fitting
+
+```{r}
+# Get column names 
+variable_names <- colnames(scaled_train_data2)
+
+# Make sure DEATH is not in variable_names
+variable_names <- variable_names[variable_names != "DEATH"]
+
+# Use reformulate() function to build the formula
+formula <- reformulate(termlabels = variable_names, response = "DEATH")
+
+# Use glm() function
+mul_logreg.fit <- glm(
+  formula = formula,
+  family = binomial,
+  data = scaled_train_data2,
+  na.action = na.omit,
+  model = TRUE,
+  method = "glm.fit",
+  x = FALSE,
+  y = TRUE,
+  contrasts = NULL
+)
+
+summary(mul_logreg.fit)
+```
+
+## 4.6 Important Risk Factor Analysis
+
+```{r}
+# Extract significant factors (p < 0.05)
+significant_factors2 <- names(coef(mul_logreg.fit))[summary(mul_logreg.fit)$coefficients[, "Pr(>|z|)"] < 0.05]
+
+# Create results table
+results_df2 <- data.frame(
+  Factor = significant_factors2,
+  Estimate = coef(mul_logreg.fit)[significant_factors2],
+  P_value = summary(mul_logreg.fit)$coefficients[significant_factors2, "Pr(>|z|)"]
+)
+
+# Rank by absolute estimate
+results_df2 <- results_df2[order(abs(results_df2$Estimate), decreasing = TRUE), ]
+results_df2$Rank <- 1:nrow(results_df2)
+
+# Reorder columns
+results_df2 <- results_df2[, c("Rank", "Factor", "Estimate", "P_value")]
+
+# Display table
+kable(results_df2, format = "html", row.names = FALSE)
+
+```
+
+Based on the table above, which ranks factors by their estimated coefficients, we can infer the following:
+
+-   `AGE` is the most influential factor, indicating a higher probability of death with increasing age.
+
+-   `SEX` is the second most influential factor. Male sex appears to be associated with a higher risk compared to female sex.
+
+-   Several acquired factors, rather than purely genetically determined ones, also appear to influence mortality. Smoking habits (represented by `CURSMOKE` and `CIGPDAY`) are associated with a higher risk of death, while education (`educ`) is associated with a lower risk.
+
+-   Based on this dataset, `SYSBP` has a greater influential effect on DEATH than `GLUCOSE`.
+
+-   This comparison is made in terms of **log-odds**, rather than **probabilities**. The link between log-odds and probabilities is nonlinear.
+
+## 4.7 Model Prediction and Evaluation
+
+```{r}
+# Predict probabilities on test data
+predicted_probs2 <- predict(mul_logreg.fit, newdata = scaled_test_data2, type = "response")
+
+# Set decision threshold (e.g., 0.1 for public health concerns)
+threshold2 <- 0.1
+predicted_classes2 <- ifelse(predicted_probs2 > threshold2, 1, 0)
+
+# Confusion matrix
+confusion_matrix2 <- table(Actual = scaled_test_data2$DEATH, Predicted = predicted_classes2)
+
+# Misclassification rate
+misclassification_rate2 <- (confusion_matrix2[1,2] + confusion_matrix2[2,1]) / sum(confusion_matrix2)
+
+# Output results
+confusion_matrix2
+misclassification_rate2
+
+```
+
+## 4.8 ROC Curve Comparison: Simple vs Multiple Logistic Regression
+
+```{r}
+# Get probabilities
+probs_logreg_simple <- predict(logreg.fit, newdata = scaled_test_data, type = "response")
+probs_logreg_multiple <- predict(mul_logreg.fit, newdata = scaled_test_data2, type = "response")
+
+# Build ROC objects
+roc_simple <- roc(scaled_test_data$DEATH, probs_logreg_simple, direction = "<")
+roc_multiple <- roc(scaled_test_data2$DEATH, probs_logreg_multiple, direction = "<")
+
+# Plot ROC curves
+plot(roc_simple, col = "blue", lwd = 2, main = "ROC Curve Comparison: Simple vs Multiple Logistic Regression")
+lines(roc_multiple, col = "red", lwd = 2)
+legend("bottomright",
+       legend = c(sprintf("Simple Logistic (AUC = %.3f)", auc(roc_simple)),
+                  sprintf("Multiple Logistic (AUC = %.3f)", auc(roc_multiple))),
+       col = c("blue", "red"), lwd = 2)
+
+```
+
+The overall performance of the classifier `mul_logreg.fit` is superior to that of the `logreg.fit` classifier, as indicated by their respective AUC values of 0.765 and 0.654.
+
+
+
+
+
+\newpage
+
+# Question B: Predicting color name from RGB values, using discriminant analysis
+
+ 
+# Background Information
+
+***In this question, you are not allowed to use*** ***any pre-implemented modules for performing discriminant analysis, but you’ll have to implement this yourself.***
+
+Colors can be coded via their RGB (red, green, blue) value in the form `(r,g,b)`, where `r`, `g`, and `b` are integers between 00 and 255. For example, `(255,0,0)` is pure red, and `(128,200,128)` is a shade of green.
+
+In this exercise we will map `(r,g,b)` values to their color names. For example, we want `(255,0,0)` to be classified as red.
+
+In order to make things a bit easier, we focus on the part of color space where `g=0`, i.e. there is no green component. This means the feature space is all combinations `(r,0,b)`, where `r` and `b` are between 0 and 255. For orientation, here is a visualisation of some of these colors, with each circle having the color of its `r`-`b`-coordinate.
+
+```{r}
+rs <- seq(0,256,5) 
+bs <- seq(0,256,5)
+df_plot_colors <- data.frame(rs = rs, bs=bs) %>% tidyr::expand(rs, bs)
+ggplot(data=df_plot_colors) + 
+  geom_point(aes(x=rs, y=bs, color=rgb(rs/256,0,bs/256)), size=1)+
+  # R's rgb code works with numbers between 0 and 1 instead of between 0 and 255.
+  scale_color_identity() +
+  theme(legend.position = "none")
+```
+
+Our goal is to create a classification algorithm that takes an `r` value, and a `b` value, and outputs the name of the color this corresponds to.
+
+Thankfully, we have a dataset where some of these labels have been entered. This is visualised below
+
+```{r}
+# Visualize training data in (r, b) space
+df_colors <- read_csv_from_zip(
+  zip_filepath = "./data/data_assignment_2.zip",
+  csv_filename = "colors_train.csv",
+   columns_to_keep = c("r", "b", "color")
+  )
+
+#dee
+#df_colors <- read.csv("./data/colors_train.csv")
+df_colors_augmented <- df_colors %>% mutate(rgb = rgb(r/256,0,b/256))
+
+ggplot(data=df_colors_augmented, aes( r, b, label = color)) +
+  geom_point(aes(x=r, y=b, color=rgb), size=3) +
+  geom_text(data = df_colors, check_overlap = TRUE) +
+  scale_color_identity() +
+  theme(legend.position = "none")
+```
+
+*Figure 1: Each point represents a color sample, labeled by its class name. Colors are plotted according to their RGB values.*
+
+# Solution
+
+## How many classes are there in the dataset?
+
+```{r}
+classes <- df_colors_augmented %>% pull("color") %>% unique 
+class_num <- classes %>% length
+class_num
+```
+
+Therefore, there are 5 classes, which correspond to the following colors:
+
+```{r}
+classes
+```
+
+We also define a vector for above 5 colors for reusing purpose.
+
+```{r}
+color_names=c("purple","pink","red","brown","blue")
+```
+
+## Fit a QDA algorithm to this classification problem and visualise the decision boundaries in a suitable way.
+
+The general discriminant score function takes the following form:
+
+$$ \delta_k(\underline x) = -\frac{(\underline x - \underline m_k)^\top C_k^{-1} (\underline x - \underline m_k)}{2} - \frac{\log \mathrm{det}(C_k)}{2} + \log \pi_k$$
+
+Now we are using 2 features, `red:=df_colors_augmented$r` and `blue:=df_colors_augmented$b`, to predict the class: `color:= df_colors_augmented$color`.
+
+For each class $X = \underline{x}|class=k$, we need to know its *mean vector(* $m_k$ *)*, *covariance matrix(* $C_{k}$ *)* and the prior probability( $\pi_k$*)* . Here $\underline{x}$ represents a vector corresponding to class $k$.
+
+### Dataset Split
+
+Use `split_data` function to split the dataset into a training set and a test set with the ratio of 8:2.
+
+```{r}
+# split_data is the same function in Q1. Here we just reuse it.
+df_colors <- split_data(data = df_colors_augmented,train_ratio = 0.8)
+```
+
+Later we can train our model on `df_colors$train` and test our model on `df_colors$test`.
+
+### Build Up Discriminant Score Function
+
+We have 5 classes as below:
+
+```{r}
+unique(df_colors$train$color)
+```
+
+To improve the efficiency of calculation process, we define a function `stat_cal` to solve $m_k, C_k, \pi_k$.
+
+```{r}
+# Function: Calculate class statistics: mean, covariance, prior
+# Arguments:
+#   category_name: Category name (string)
+#   df: DataFrame (pandas DataFrame)
+# Returns:
+#   A list containing the number of rows, column means, and covariance matrix for the category
+
+stat_cal <- function(category_name, df) {
+  # Filter the DataFrame for the specified category
+  df_filtered <- df %>% filter(color == category_name)
+
+  # Calculate the number of rows in the category
+  n <- nrow(df_filtered)
+
+  # Calculate the portion of rows in the category
+  pi <- n/nrow(df)
+  
+  # Calculate the column means for 'r' and 'b'
+  m <- df_filtered %>% select(r, b) %>% colMeans
+  
+  # Calculate the covariance matrix for 'r' and 'b'
+  Sigma <- df_filtered %>% select(r, b) %>% cov
+  
+  return(list(pi = pi, m = m, Sigma = Sigma))
+}
+
+```
+
+For all 5 classes, we applied a `sapply` function to above calculation process to obtain the `stat_values` matrix, which combines $n, \pi, m, \sigma$ for each class.
+
+```{r}
+color_stat_values <- sapply(color_names, function(color) {
+  stat_cal(category_name = color, df = df_colors$train)
+})
+
+color_stat_values
+# we can call the value of purple by follow code
+# color_stat_values["pi","purple"]
+```
+
+N.B. We can verify the statistic values above by summing the `pi` values; the sum should equal 1. `pi` represents the prior probability, indicated by each class's frequency over all events.
+
+```{r}
+sum(unlist(color_stat_values["pi",]))
+```
+
+The sum of prior probabilities is 1, confirming correct class proportions.
+
+Then we defined a function `delta` to calculate the delta value, given class input ( $X=x$ ) and its mean *vector*( $m_k$ ), prior probability( $\pi_k$ ) and *covariance* matrix( $C_k$ ).
+
+```{r}
+# Function: Compute discriminant score for each row (sample) in X
+# Args:
+#   X: A numeric vector representing an observation.
+#   mean: The mean vector of the class.
+#   Sigma: The covariance matrix of the class.
+#   pi: The prior probability of the class.
+#
+# Returns:
+#   The discriminant function value for the sample belonging to the class.
+
+delta <- function(X, mean, Sigma, pi){
+  X_minus_mean <- X - mean 
+  Sigma_inv <- solve(Sigma)
+  dv <- -t(X_minus_mean) %*% Sigma_inv %*% X_minus_mean / 2 - log(det(Sigma))/2 + log(pi)
+  return(dv)
+}
+```
+
+Now, we can apply function `delta` to calculate classes' delta values of a given class.
+
+```{r}
+X_purple <- df_colors$train %>% filter(color == "purple") %>% select(r, b)
+X_purple_stat <- stat_cal(category_name = "purple",df = df_colors$train)
+delta_purple <- apply(X_purple, 1, function(row) {
+  delta(X = as.numeric(row),
+        mean = X_purple_stat$m,
+        Sigma = X_purple_stat$Sigma,
+        pi = X_purple_stat$pi) # each row returns to a dv value, so delta_purple is a col
+})
+
+```
+
+Similarly, we applied a loop function to above delta calculation process.
+
+```{r}
+# Create an empty list to store the results
+delta_values <- list()
+
+# Loop through each color category
+for (cname in color_names) {
+  # 1. Extract data for the specific color
+  X_color <- df_colors$train %>% 
+    filter(color == !!cname) %>%  
+    select(r, b)
+  
+  # 2. Calculate statistics
+  X_color_stat <- stat_cal(category_name = cname, df = df_colors$train)
+  
+  # 3. Calculate discriminant values for each sample in this class
+  delta_color <- apply(X_color, MARGIN = 1, function(row) {
+    delta(X = as.numeric(row),
+          mean = X_color_stat$m,
+          Sigma = X_color_stat$Sigma,
+          pi = X_color_stat$pi)
+  })
+  
+  # 4. Store the results in the list
+  delta_values[[cname]] <- list(
+    X = X_color,
+    stat = X_color_stat,
+    delta = delta_color
+  )
+}
+
+```
+
+### Visualise the Decision Boundaries
+
+Now we have stored all classes' delta values in the list `delta_values` and we can call them by using `delta_values[["cname"]]$delta`. Then, we use these 5 delta values to visualise the decision boundary.
+
+```{r}
+# 1. Generate a 2D grid of (r, b) values to evaluate decision boundaries
+plot_grid <- expand.grid(
+  r = seq(min(df_colors$test$r), max(df_colors$test$r), length.out = 100),
+  b = seq(min(df_colors$test$b), max(df_colors$test$b), length.out = 100)
+)
+
+# 2. Predict the color class for each grid point using QDA
+plot_grid <- plot_grid %>%
+  rowwise() %>%
+  mutate(
+    pred_by_hand = {
+    # For each point (r, b), compute the discriminant score for each class
+    deltas <- sapply(color_names, function(color) {
+      delta(
+        X = c(r, b),
+        mean = delta_values[[color]]$stat$m,
+        Sigma = delta_values[[color]]$stat$Sigma,
+        pi = delta_values[[color]]$stat$pi
+      )
+    })
+    # Assign the class with the highest discriminant score
+    color_names[which.max(deltas)]
+  }) %>%
+  ungroup()
+```
+
+*Figure 2: The boundaries between different colors represent decision boundaries, labeled by its class name.*
+
+```{r}
+# Plot the test set with predicted classes and decision boundary
+ggplot() +
+  # separate by background color (predicted class regions)
+  geom_tile(data = plot_grid,
+            aes(x = r, y = b, fill = pred_by_hand), # Map predicted class to fill
+            alpha = 0.3) + # Set transparency to see points below
+  # actual classification (test points)
+  geom_point(data = df_colors$test,
+             aes(x = r, y = b, shape = color), # Map actual class to shape
+             size = 2, 
+             alpha = 0.9) +
+  # Add labels and theme settings
+  labs(title = "QDA Predictions on Test Set with Decision Boundary",
+       x = "r",
+       y = "b",
+       fill = "Predicted Color", # Fill legend title
+       shape = "Actual Color") + # Shape legend title
+  theme_minimal()
+
+
+```
+
+### Testing Point (200,0,200)
+
+Now, we have our decision boundaries as shown in Figure 2, and the parameters are stored in `delta_values`. If we receive an input point, which has features `r` and `b`, we can make our prediction on its color. Furthermore, we defined a function to smooth this process as below.
+
+```{r}
+test_point <- c(200, 200)
+
+# test_deltas returns a vector which stores five `dv` values, since color_names' length is 5.
+test_deltas <- sapply(color_names, function(color) {
+  delta(
+    X = test_point,
+    mean = delta_values[[color]]$stat$m,
+    Sigma = delta_values[[color]]$stat$Sigma,
+    pi = delta_values[[color]]$stat$pi
+  ) # delta returns a dv value
+})
+
+predicted_200qda <- color_names[which.max(test_deltas)]
+predicted_200qda
+
+```
+
+For the point (200, 0, 200), we made our prediction that it belongs to the class "purple."
+
+```{r, echo=FALSE}
+# 1. Create a data frame for the test point
+test_point_df <- data.frame(
+  r = 200,
+  b = 200,
+  label = "point(200,200)"
+)
+
+ggplot(plot_grid, aes(x = r, y = b)) +
+  geom_tile(aes(fill = pred_by_hand)) +  
+  geom_point(data = test_point_df, aes(x = r, y = b), 
+             shape = 8, size = 4, color = "white", stroke = 1.5) +  
+  geom_text(data = test_point_df, aes(x = r, y = b, label = label),
+            vjust = -1.2, color = "white", size = 4) +
+  theme_minimal() +
+  labs(title = "QDA Decision Boundaries with Test Point (200,0,200)",
+       fill = "Predicted Color")
+
+
+```
+
+*Figure 3:* QDA Decision Boundaries with Test Point (200,0,200)
+
+### Testing On Test Data Set
+
+```{r}
+# Define a function to predict for a single sample point
+predict_qda_manual <- function(point) {
+deltas <- sapply(color_names, function(color) {
+ delta(
+   X = point,
+   mean = delta_values[[color]]$stat$m,
+   Sigma = delta_values[[color]]$stat$Sigma,
+   pi = delta_values[[color]]$stat$pi
+ )
+})
+# Return the class corresponding to the maximum delta
+return(color_names[which.max(deltas)])
+}
+
+# Predict for each row in the test set
+test_data <- df_colors$test %>% select(r,b)
+
+# QDA prediction result stores in predicted_labels_QDA
+predicted_labels_QDA <- apply(test_data, 1, 
+                              function(row) {
+                                point <- c(row['r'], row['b'])
+                                predict_qda_manual(point)
+                                }
+                              )
+```
+
+Now, we have our prediction result `predicted_labels_QDA` responding to `df_colors$test`.
+
+## kNN-Classification
+
+While preparing to train our custom kNN algorithm, we observed that R offers a direct training method (as shown below), which suggested an optimal $k$ of 1. This result appears unusual. Further testing of the kNN method with different random seeds revealed that the optimal \$k\$ value varied based on how the training data set was partitioned.
+
+```{r}
+# Train kNN model with trainControl
+control <- trainControl(method = "cv", number = 10) # K-Fold Cross-Validation
+knn_model <- train(color~ r + b,
+data = df_colors$train,
+method = "knn",
+trControl = control,
+tuneGrid = data.frame(k = 1:20))
+print(knn_model)
+```
+
+### Algorithm Hypothsis
+
+Compared to the QDA method, kNN uses **Euclidean distance** to measure the similarity between sample points and test points. For a given input feature point $X=x$, we identify $x$'s $k$ nearest neighbors in the training set. The class label for the test point $x$ is determined by a majority vote among these $k$ neighbors. Specifically, we calculate the distances from $x$ to each of its $k$ neighbors and assign $x$ the label that appears most frequently among them.
+
+#### Euclidean Distance
+
+```{r}
+# Calculate Euclidean distance
+euclidean_distance <- function(x1, x2) {
+  sqrt(sum((x1 - x2) ^ 2))
+}
+```
+
+#### Find Neighbors
+
+1.  **Function Purpose**: The function `find_neighbors` is designed to find the $k$ nearest neighbors for a given test sample from the training data.
+
+2.  **Distance Calculation**: The `apply` function is used to iterate over each row in the specified columns ("r" and "b") of the `train_data`, calculating the Euclidean distance between each training sample and the `test_sample`.
+
+3.  **Return Neighbors**: The `order` function is used to sort the distances and return the indices of the $k$ smallest distances, which correspond to the $k$ nearest neighbors.
+
+```{r}
+# Find k nest neighbours among train data set
+find_neighbors <- function(train_data, test_sample, k) {
+  distances <- apply(train_data[, c("r", "b")], 1, function(train_sample) {
+    euclidean_distance(train_sample, test_sample)
+  })
+  # Return the index of the minimum distance 
+  order(distances)[1:k]
+}
+```
+
+#### Voting Out Highest Frequency Label
+
+The `get_majority_vote` function determines the most common label among the nearest neighbors.
+
+```{r}
+# get_majority_vote
+#
+# Purpose:
+# Determines the most common label among the nearest neighbors.
+#
+# Parameters:
+# - neighbors: A vector of indices representing the nearest neighbors.
+# - train_labels: A vector containing the labels of the training data.
+#
+# Returns:
+# - The label that appears most frequently among the neighbors.
+get_majority_vote <- function(neighbors, train_labels) {
+  neighbor_labels <- train_labels[neighbors]
+  # Return the most frequent label
+  names(sort(table(neighbor_labels), decreasing = TRUE))[1]
+}
+
+
+```
+
+```{r}
+# knn_classify
+#
+# Purpose:
+# Classifies test data using the k-Nearest Neighbors algorithm.
+#
+# Parameters:
+# - train_data: A data frame containing the training samples with features.
+# - train_labels: A vector containing the labels for the training data.
+# - test_data: A data frame containing the test samples to classify.
+# - k: The number of nearest neighbors to consider for classification.
+#
+# Returns:
+# - A vector of predicted labels for the test data.
+knn_classify <- function(train_data, train_labels, test_data, k) {
+  predictions <- sapply(1:nrow(test_data), function(i) {
+    test_sample <- test_data[i, c("r", "b")]
+    neighbors <- find_neighbors(train_data, test_sample, k)
+    get_majority_vote(neighbors, train_labels)
+  })
+  return(predictions)
+}
+
+```
+
+#### KNN Classification Model Training
+
+```{r}
+# Classify test data using k-Nearest Neighbors
+#
+# Assigns labels to test samples based on the training data.
+#
+# Inputs:
+# - df_colors$train: Training data with features ("r", "b") and labels.
+# - train_labels: Vector of labels for the training data.
+# - test_data: Data frame of test samples with features ("r", "b").
+# - k: Number of neighbors to consider.
+#
+# Output:
+# - knn_predictions: Predicted labels for the test data.
+knn_predictions <- knn_classify(df_colors$train, train_labels = df_colors$train$color, df_colors$test, k=10)
+
+```
+
+#### Test Point (200,0,200)
+
+```{r}
+# Define the test point
+test_point <- data.frame(r = 200, b = 200)
+
+# Find the indices of the nearest neighbors
+neighbors_indices <- find_neighbors(train_data = df_colors$train, test_sample = test_point, k=10)
+
+# Retrieve the labels of the neighbors
+neighbor_labels <- df_colors$train$color[neighbors_indices]
+
+# Perform majority voting to determine the predicted label
+predicted_knn200 <- get_majority_vote(neighbors_indices, df_colors$train$color)
+
+# Output the prediction result
+print(paste("The predicted label for point (200,0,200) is:", predicted_knn200))
+
+
+```
+
+It is relatively straightforward to understand why kNN predicts the point as pink, unlike QDA which predicts it as purple. As shown in Figure 3, titled "QDA Decision Boundaries with Test Point (200, 0, 200)," the point (200, 200) is located very close to the decision boundary between the purple and pink regions.
+
+The kNN method determines the classification based on the majority class among its k (here we set k=10 in our by-hand kNN algorithm ) nearest neighbors, as illustrated by the bright area in the figure below. We can observe that the number of pink neighbors is clearly higher than the number of purple neighbors. This is why kNN classifies the point (200, 200) as pink, whereas QDA classifies it as purple.
+
+![](images/clipboard-2110257629.png)
+
+### Model Comparison on Test Data Set
+
+#### kNN Classification Performance
+
+```{r}
+confusion_metrics_kNN <- confusionMatrix(factor(knn_predictions), factor(df_colors$test$color))
+```
+
+#### QDA Classification Performance
+
+```{r}
+confusion_metrics_QDA <- confusionMatrix(factor(predicted_labels_QDA), factor(df_colors$test$color))
+```
+
+```{r , echo=FALSE}
+# extract confusion metrics
+cm1 <- confusion_metrics_kNN
+cm2 <- confusion_metrics_QDA
+
+metrics_df <- data.frame(
+  Metric = c("Accuracy", "Kappa", "Sensitivity", "Specificity", "Precision", "Recall", "F1"),
+  kNN = c(
+    cm1$overall['Accuracy'],
+    cm1$overall['Kappa'],
+    mean(cm1$byClass[,'Sensitivity'], na.rm = TRUE),
+    mean(cm1$byClass[,'Specificity'], na.rm = TRUE),
+    mean(cm1$byClass[,'Precision'], na.rm = TRUE),
+    mean(cm1$byClass[,'Recall'], na.rm = TRUE),
+    mean(cm1$byClass[,'F1'], na.rm = TRUE)
+  ),
+  QDA = c(
+    cm2$overall['Accuracy'],
+    cm2$overall['Kappa'],
+    mean(cm2$byClass[,'Sensitivity'], na.rm = TRUE),
+    mean(cm2$byClass[,'Specificity'], na.rm = TRUE),
+    mean(cm2$byClass[,'Precision'], na.rm = TRUE),
+    mean(cm2$byClass[,'Recall'], na.rm = TRUE),
+    mean(cm2$byClass[,'F1'], na.rm = TRUE)
+  )
+)
+
+# output
+kable(metrics_df, caption = "Comparison of performance indicators of the kNN and QDA models")
+```
+
+```{r}
+# kNN Confusion Matrix Dataframe
+confusion_mat_kNN <- table(Predicted = knn_predictions, Actual = df_colors$test$color)
+df_kNN <- as.data.frame(confusion_mat_kNN)
+colnames(df_kNN) <- c("Predicted", "Actual", "Freq")
+
+# QDA Confusion Matrix Dataframe
+confusion_mat_QDA <- table(Predicted = predicted_labels_QDA, Actual = df_colors$test$color)
+df_QDA <- as.data.frame(confusion_mat_QDA)
+colnames(df_QDA) <- c("Predicted", "Actual", "Freq")
+
+# plot
+plot_confusion_heatmap <- function(df, title) {
+  ggplot(df, aes(x = Actual, y = Predicted, fill = Freq)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient(low = "white", high = "steelblue") +
+    geom_text(aes(label = Freq), color = "black", size = 4) +
+    labs(title = title, x = "Actual", y = "Predicted") +
+    theme_minimal()
+}
+
+# kNN Confusion Matrix Heatmap
+plot_confusion_heatmap(df_kNN, "kNN Confusion Matrix Heatmap")
+```
+
+```{r , echo=FALSE}
+# QDA Confusion Matrix Heatmap
+plot_confusion_heatmap(df_QDA, "QDA Confusion Matrix Heatmap")
+```
+
+In conclusion, our QDA model performs slightly better than the kNN model when $k=10$.
+
+#```
