@@ -1,6 +1,6 @@
 ---
 title: 
-  - "STAT462 Assignment 2 - Classification"
+   "STAT462 Assignment 2 - Classification"
 author: 
   - Xia Yu (62380486)
   - David Ewing (82171165)
@@ -9,6 +9,7 @@ output:
   html_document:
     df_print: paged
 ---
+
 
 ```{r, include = F, echo = F, eval=T}
 # Environment setup: Install and load required packages
